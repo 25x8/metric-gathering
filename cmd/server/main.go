@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"html/template"
 	"log"
@@ -181,6 +182,12 @@ func handleUpdateMetric(s *MemStorage) http.HandlerFunc {
 }
 
 func main() {
+	// Определение флага для адреса сервера
+	addr := flag.String("a", "localhost:8080", "HTTP server address")
+
+	// Парсинг флагов
+	flag.Parse()
+
 	storage := NewMemStorage()
 	r := mux.NewRouter()
 
@@ -189,6 +196,6 @@ func main() {
 	r.HandleFunc("/value/{type}/{name}", handleGetValue(storage)).Methods(http.MethodGet)
 	r.HandleFunc("/", handleGetAllMetrics(storage)).Methods(http.MethodGet)
 
-	log.Println("Server started at http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", r))
+	log.Printf("Server started at %s\n", *addr)
+	log.Fatal(http.ListenAndServe(*addr, r))
 }

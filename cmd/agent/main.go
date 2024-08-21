@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"time"
 
@@ -9,14 +10,19 @@ import (
 )
 
 func main() {
-	pollInterval := 2 * time.Second
-	reportInterval := 10 * time.Second
+	// Определение флагов
+	addr := flag.String("a", "localhost:8080", "HTTP server address")
+	reportInterval := flag.Int("r", 10, "Report interval in seconds")
+	pollInterval := flag.Int("p", 2, "Poll interval in seconds")
+
+	// Парсинг флагов
+	flag.Parse()
 
 	collector := collectors.NewMetricsCollector()
-	sender := senders.NewHTTPSender("http://localhost:8080")
+	sender := senders.NewHTTPSender("http://" + *addr)
 
-	tickerPoll := time.NewTicker(pollInterval)
-	tickerReport := time.NewTicker(reportInterval)
+	tickerPoll := time.NewTicker(time.Duration(*pollInterval) * time.Second)
+	tickerReport := time.NewTicker(time.Duration(*reportInterval) * time.Second)
 
 	for {
 		select {
