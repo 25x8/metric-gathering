@@ -56,27 +56,29 @@ func (c *MetricsCollector) Collect() map[string]interface{} {
 		"StackSys":      float64(memStats.StackSys),
 		"Sys":           float64(memStats.Sys),
 		"TotalAlloc":    float64(memStats.TotalAlloc),
-		"PollCount":     c.PollCount,    // Counter type
-		"RandomValue":   rand.Float64(), // Random gauge value
+		"PollCount":     int64(c.PollCount), // Явное указание типа int64
+		"RandomValue":   rand.Float64(),     // Random gauge value
 	}
 
 	return metrics
 }
 
 // CollectAndStore - метод для сбора метрик и их сохранения в хранилище
-func (c *MetricsCollector) CollectAndStore(repo storage.MetricRepository) error {
+func (c *MetricsCollector) CollectAndStore(store *storage.MemStorage) error {
 	metrics := c.Collect()
 
 	for name, value := range metrics {
 		switch v := value.(type) {
 		case float64:
-			if err := repo.SaveGaugeMetric(name, v); err != nil {
+			if err := store.SaveGaugeMetric(name, v); err != nil {
 				return err
 			}
 		case int64:
-			if err := repo.SaveCounterMetric(name, v); err != nil {
+			if err := store.SaveCounterMetric(name, v); err != nil {
 				return err
 			}
+		default:
+			// Игнорировать неподдерживаемые типы
 		}
 	}
 

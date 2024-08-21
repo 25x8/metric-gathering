@@ -5,14 +5,6 @@ import (
 	"sync"
 )
 
-// MetricRepository - интерфейс для работы с хранилищем метрик
-type MetricRepository interface {
-	SaveGaugeMetric(name string, value float64) error
-	SaveCounterMetric(name string, value int64) error
-	GetGaugeMetric(name string) (float64, error)
-	GetCounterMetric(name string) (int64, error)
-}
-
 // MemStorage - структура для хранения метрик в памяти
 type MemStorage struct {
 	sync.Mutex
@@ -64,4 +56,19 @@ func (s *MemStorage) GetCounterMetric(name string) (int64, error) {
 		return 0, errors.New("metric not found")
 	}
 	return value, nil
+}
+
+// GetAllMetrics - возвращает все метрики
+func (s *MemStorage) GetAllMetrics() map[string]interface{} {
+	s.Lock()
+	defer s.Unlock()
+
+	allMetrics := make(map[string]interface{})
+	for name, value := range s.gauges {
+		allMetrics[name] = value
+	}
+	for name, value := range s.counters {
+		allMetrics[name] = value
+	}
+	return allMetrics
 }

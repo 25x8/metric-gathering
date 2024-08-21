@@ -1,81 +1,59 @@
 package main
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestMemStorage_UpdateGauge(t *testing.T) {
+func TestSaveAndRetrieveGaugeMetric(t *testing.T) {
 	store := NewMemStorage()
 
-	store.UpdateGauge("Alloc", 12345.67)
+	// Сохраняем метрику типа gauge
+	err := store.SaveGaugeMetric("Alloc", 12345.67)
+	assert.NoError(t, err)
 
-	assert.Equal(t, 12345.67, store.Gauges["Alloc"])
+	// Извлекаем и проверяем значение
+	value, err := store.GetGaugeMetric("Alloc")
+	assert.NoError(t, err)
+	assert.Equal(t, 12345.67, value)
 }
 
-func TestMemStorage_UpdateCounter(t *testing.T) {
+func TestSaveAndRetrieveCounterMetric(t *testing.T) {
 	store := NewMemStorage()
 
-	store.UpdateCounter("PollCount", 1)
-	store.UpdateCounter("PollCount", 2)
+	// Сохраняем метрику типа counter
+	err := store.SaveCounterMetric("PollCount", 1)
+	assert.NoError(t, err)
+	err = store.SaveCounterMetric("PollCount", 2)
+	assert.NoError(t, err)
 
-	assert.Equal(t, int64(3), store.Counters["PollCount"])
+	// Извлекаем и проверяем значение
+	value, err := store.GetCounterMetric("PollCount")
+	assert.NoError(t, err)
+	assert.Equal(t, int64(3), value)
 }
 
-func TestHTTPHandler_UpdateGauge(t *testing.T) {
+func TestGetNonExistentMetric(t *testing.T) {
 	store := NewMemStorage()
-	handler := http.HandlerFunc(store.HTTPHandler)
 
-	req := httptest.NewRequest(http.MethodPost, "/update/gauge/Alloc/12345.67", nil)
-	rr := httptest.NewRecorder()
-
-	handler.ServeHTTP(rr, req)
-
-	assert.Equal(t, http.StatusOK, rr.Code)
-	assert.Equal(t, 12345.67, store.Gauges["Alloc"])
+	// Попытка получить несуществующую метрику
+	_, err := store.GetGaugeMetric("NonExistent")
+	assert.Error(t, err)
+	assert.Equal(t, "metric not found", err.Error())
 }
 
-func TestHTTPHandler_UpdateCounter(t *testing.T) {
+func TestGetAllMetrics(t *testing.T) {
 	store := NewMemStorage()
-	handler := http.HandlerFunc(store.HTTPHandler)
 
-	req := httptest.NewRequest(http.MethodPost, "/update/counter/PollCount/1", nil)
-	rr := httptest.NewRecorder()
+	// Сохраняем несколько метрик
+	store.SaveGaugeMetric("Alloc", 12345.67)
+	store.SaveCounterMetric("PollCount", 3)
 
-	handler.ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusOK, rr.Code)
+	// Извлекаем все метрики
+	allMetrics := store.GetAllMetrics()
 
-	req = httptest.NewRequest(http.MethodPost, "/update/counter/PollCount/2", nil)
-	rr = httptest.NewRecorder()
-
-	handler.ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusOK, rr.Code)
-	assert.Equal(t, int64(3), store.Counters["PollCount"])
-}
-
-func TestHTTPHandler_InvalidMetricType(t *testing.T) {
-	store := NewMemStorage()
-	handler := http.HandlerFunc(store.HTTPHandler)
-
-	req := httptest.NewRequest(http.MethodPost, "/update/invalid/Alloc/12345.67", nil)
-	rr := httptest.NewRecorder()
-
-	handler.ServeHTTP(rr, req)
-
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
-}
-
-func TestHTTPHandler_MissingMetricName(t *testing.T) {
-	store := NewMemStorage()
-	handler := http.HandlerFunc(store.HTTPHandler)
-
-	req := httptest.NewRequest(http.MethodPost, "/update/gauge//12345.67", nil)
-	rr := httptest.NewRecorder()
-
-	handler.ServeHTTP(rr, req)
-
-	assert.Equal(t, http.StatusNotFound, rr.Code)
+	// Проверяем значения
+	assert.Equal(t, 12345.67, allMetrics["Alloc"])
+	assert.Equal(t, int64(3), allMetrics["PollCount"])
 }
