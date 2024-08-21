@@ -6,20 +6,20 @@ import (
 	"net/http"
 )
 
-// HttpSender - структура для отправки метрик на сервер
-type HttpSender struct {
+// HTTPSender - структура для отправки метрик на сервер
+type HTTPSender struct {
 	ServerURL string
 }
 
-// NewHttpSender - конструктор для HttpSender
-func NewHttpSender(serverURL string) *HttpSender {
-	return &HttpSender{
+// NewHTTPSender - конструктор для HTTPSender
+func NewHTTPSender(serverURL string) *HTTPSender {
+	return &HTTPSender{
 		ServerURL: serverURL,
 	}
 }
 
 // Send - метод для отправки метрик на сервер
-func (s *HttpSender) Send(metrics map[string]interface{}) error {
+func (s *HTTPSender) Send(metrics map[string]interface{}) error {
 	for key, value := range metrics {
 		var metricType string
 		switch value.(type) {

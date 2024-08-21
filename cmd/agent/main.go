@@ -13,7 +13,7 @@ func main() {
 	reportInterval := 10 * time.Second
 
 	collector := collectors.NewMetricsCollector()
-	sender := senders.NewHttpSender("http://localhost:8080")
+	sender := senders.NewHTTPSender("http://localhost:8080")
 
 	tickerPoll := time.NewTicker(pollInterval)
 	tickerReport := time.NewTicker(reportInterval)

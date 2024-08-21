@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestHttpSender_Send - тестирование отправки метрик с помощью мока HTTP-сервера
-func TestHttpSender_Send(t *testing.T) {
+// TestHTTPSender_Send - тестирование отправки метрик с помощью мока HTTP-сервера
+func TestHTTPSender_Send(t *testing.T) {
 	// Создаем тестовый HTTP-сервер
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/update/gauge/Alloc/12345.67", r.URL.EscapedPath())
@@ -18,8 +18,8 @@ func TestHttpSender_Send(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Создаем HttpSender с URL тестового сервера
-	sender := NewHttpSender(server.URL)
+	// Создаем HTTPSender с URL тестового сервера
+	sender := NewHTTPSender(server.URL)
 
 	// Пример метрик
 	metrics := map[string]interface{}{
@@ -31,7 +31,7 @@ func TestHttpSender_Send(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestHttpSender_SendCounter(t *testing.T) {
+func TestHTTPSender_SendCounter(t *testing.T) {
 	// Создаем тестовый HTTP-сервер
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/update/counter/PollCount/1", r.URL.EscapedPath())
@@ -40,8 +40,8 @@ func TestHttpSender_SendCounter(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Создаем HttpSender с URL тестового сервера
-	sender := NewHttpSender(server.URL)
+	// Создаем HTTPSender с URL тестового сервера
+	sender := NewHTTPSender(server.URL)
 
 	// Пример метрик
 	metrics := map[string]interface{}{
