@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/25x8/metric-gathering/cmd/agent/collectors"
@@ -17,6 +19,23 @@ func main() {
 
 	// Парсинг флагов
 	flag.Parse()
+
+	// Чтение переменных окружения
+	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
+		*addr = envAddr
+	}
+
+	if envReportInterval := os.Getenv("REPORT_INTERVAL"); envReportInterval != "" {
+		if value, err := strconv.Atoi(envReportInterval); err == nil {
+			*reportInterval = value
+		}
+	}
+
+	if envPollInterval := os.Getenv("POLL_INTERVAL"); envPollInterval != "" {
+		if value, err := strconv.Atoi(envPollInterval); err == nil {
+			*pollInterval = value
+		}
+	}
 
 	collector := collectors.NewMetricsCollector()
 	sender := senders.NewHTTPSender("http://" + *addr)

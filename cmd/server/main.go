@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 
@@ -187,6 +188,11 @@ func main() {
 
 	// Парсинг флагов
 	flag.Parse()
+
+	// Чтение переменной окружения
+	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
+		*addr = envAddr
+	}
 
 	storage := NewMemStorage()
 	r := mux.NewRouter()
