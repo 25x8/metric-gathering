@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/25x8/metric-gathering/internal/logger"
 	"html/template"
 	"log"
 	"net/http"
@@ -143,8 +144,8 @@ func handleGetAllMetrics(s *MemStorage) http.HandlerFunc {
 }
 
 // handleUpdateMetric - обработчик для обновления метрики
-func handleUpdateMetric(s *MemStorage) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func handleUpdateMetric(s *MemStorage) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		metricType := vars["type"]
 		metricName := vars["name"]
@@ -179,7 +180,7 @@ func handleUpdateMetric(s *MemStorage) http.HandlerFunc {
 
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "Metric %s updated", metricName)
-	}
+	})
 }
 
 func main() {
@@ -197,10 +198,17 @@ func main() {
 	storage := NewMemStorage()
 	r := mux.NewRouter()
 
+	// logger
+	if err := logger.Initialize("info"); err != nil {
+		panic(err)
+	}
+
+	defer logger.Sync()
+
 	// Маршруты для обновления метрик и получения их значений
-	r.HandleFunc("/update/{type}/{name}/{value}", handleUpdateMetric(storage)).Methods(http.MethodPost)
-	r.HandleFunc("/value/{type}/{name}", handleGetValue(storage)).Methods(http.MethodGet)
-	r.HandleFunc("/", handleGetAllMetrics(storage)).Methods(http.MethodGet)
+	r.Handle("/update/{type}/{name}/{value}", logger.RequestLogger(handleUpdateMetric(storage))).Methods(http.MethodPost)
+	r.Handle("/value/{type}/{name}", logger.RequestLogger(handleGetValue(storage))).Methods(http.MethodGet)
+	r.Handle("/", logger.RequestLogger(handleGetAllMetrics(storage))).Methods(http.MethodGet)
 
 	log.Printf("Server started at %s\n", *addr)
 	log.Fatal(http.ListenAndServe(*addr, r))
