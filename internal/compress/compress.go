@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// bufferedResponseWriter is a custom http.ResponseWriter that buffers the response body
 type bufferedResponseWriter struct {
 	http.ResponseWriter
 	statusCode int
@@ -21,6 +20,7 @@ func newBufferedResponseWriter(w http.ResponseWriter) *bufferedResponseWriter {
 		ResponseWriter: w,
 		headers:        make(http.Header),
 		body:           &bytes.Buffer{},
+		statusCode:     http.StatusOK, // Инициализируем статус по умолчанию
 	}
 }
 

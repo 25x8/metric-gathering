@@ -303,10 +303,6 @@ func main() {
 	storage := NewMemStorage()
 	r := mux.NewRouter()
 
-	// сжатие
-	r.Use(compress.GzipDecompressMiddleware)
-	r.Use(compress.GzipCompressMiddleware)
-
 	// logger
 	if err := logger.Initialize("info"); err != nil {
 		panic(err)
@@ -314,14 +310,18 @@ func main() {
 
 	defer logger.Sync()
 
+	r.Use(logger.RequestLogger)
+	r.Use(compress.GzipDecompressMiddleware)
+	r.Use(compress.GzipCompressMiddleware)
+
 	// Маршруты для обновления метрик и получения их значений
-	r.Handle("/update/{type}/{name}/{value}", logger.RequestLogger(handleUpdateMetric(storage))).Methods(http.MethodPost)
-	r.Handle("/value/{type}/{name}", logger.RequestLogger(handleGetValue(storage))).Methods(http.MethodGet)
-	r.Handle("/", logger.RequestLogger(handleGetAllMetrics(storage))).Methods(http.MethodGet)
+	r.Handle("/update/{type}/{name}/{value}", handleUpdateMetric(storage)).Methods(http.MethodPost)
+	r.Handle("/value/{type}/{name}", handleGetValue(storage)).Methods(http.MethodGet)
+	r.Handle("/", handleGetAllMetrics(storage)).Methods(http.MethodGet)
 
 	// Маршруты для работы с JSON
-	r.Handle("/update/", logger.RequestLogger(handleUpdateMetricJSON(storage))).Methods(http.MethodPost)
-	r.Handle("/value/", logger.RequestLogger(handleGetValueJSON(storage))).Methods(http.MethodPost)
+	r.Handle("/update/", handleUpdateMetricJSON(storage)).Methods(http.MethodPost)
+	r.Handle("/value/", handleGetValueJSON(storage)).Methods(http.MethodPost)
 
 	log.Printf("Server started at %s\n", *addr)
 	log.Fatal(http.ListenAndServe(*addr, r))

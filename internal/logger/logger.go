@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"github.com/25x8/metric-gathering/internal/response"
 	"net/http"
 	"time"
 
@@ -41,24 +42,34 @@ func Sync() {
 }
 
 // RequestLogger — middleware-логер для входящих HTTP-запросов.
-func RequestLogger(h http.Handler) http.Handler {
+func RequestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		// Обертка для записи ответа
-		ww := &responseWriterWrapper{
-			ResponseWriter: w,
-			statusCode:     http.StatusOK,
+		// Проверяем, реализует ли ResponseWriter интерфейс ResponseInfo
+		var ri response.ResponseInfo
+		if existingRI, ok := w.(response.ResponseInfo); ok {
+			// Если уже реализует, используем его
+			ri = existingRI
+		} else {
+			// Иначе создаем свою обертку
+			ww := &responseWriterWrapper{
+				ResponseWriter: w,
+				statusCode:     http.StatusOK,
+			}
+			w = ww
+			ri = ww
 		}
 
-		h.ServeHTTP(ww, r)
+		next.ServeHTTP(w, r)
 
+		// Используем интерфейс ResponseInfo для получения информации
 		Log.Info("Request processed",
 			zap.String("uri", r.RequestURI),
 			zap.String("method", r.Method),
 			zap.Duration("duration", time.Since(start)),
-			zap.Int("status", ww.statusCode),
-			zap.Int("response_size", ww.responseSize),
+			zap.Int("status", ri.Status()),
+			zap.Int("response_size", ri.Size()),
 		)
 	})
 }
@@ -78,4 +89,13 @@ func (w *responseWriterWrapper) Write(data []byte) (int, error) {
 	size, err := w.ResponseWriter.Write(data)
 	w.responseSize += size
 	return size, err
+}
+
+// Реализуем интерфейс response.ResponseInfo
+func (w *responseWriterWrapper) Status() int {
+	return w.statusCode
+}
+
+func (w *responseWriterWrapper) Size() int {
+	return w.responseSize
 }
