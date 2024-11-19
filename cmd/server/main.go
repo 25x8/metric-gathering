@@ -219,12 +219,9 @@ func (s *MemStorage) LoadFromFile() error {
 func (s *MemStorage) RunPeriodicSave() {
 	ticker := time.NewTicker(s.storeInterval)
 	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			if err := s.SaveToFile(); err != nil {
-				log.Printf("Error saving metrics to file: %v", err)
-			}
+	for range ticker.C {
+		if err := s.SaveToFile(); err != nil {
+			log.Printf("Error saving metrics to file: %v", err)
 		}
 	}
 }

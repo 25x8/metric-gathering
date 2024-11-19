@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/stretchr/testify/assert"
-	"io/ioutil"
 	"os"
 	"testing"
 )
@@ -61,7 +60,7 @@ func TestGetAllMetrics(t *testing.T) {
 
 func TestSaveAndLoadMetrics(t *testing.T) {
 	// Создаём временный файл
-	tmpFile, err := ioutil.TempFile("", "metrics_test_*.json")
+	tmpFile, err := os.CreateTemp("", "metrics_test_*.json")
 	assert.NoError(t, err)
 	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 
