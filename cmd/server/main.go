@@ -1,15 +1,18 @@
 package main
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/25x8/metric-gathering/internal/logger"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/mux"
@@ -27,6 +30,42 @@ type Metrics struct {
 	MType string   `json:"type"`            // gauge или counter
 	Delta *int64   `json:"delta,omitempty"` // значение для counter
 	Value *float64 `json:"value,omitempty"` // значение для gauge
+}
+
+// compressWriter добавляет поддержку gzip для ответа
+type compressWriter struct {
+	http.ResponseWriter
+	Writer io.Writer
+}
+
+func (cw *compressWriter) Write(data []byte) (int, error) {
+	return cw.Writer.Write(data)
+}
+
+// gzipMiddleware обрабатывает запросы с gzip и добавляет сжатие ответов
+func gzipMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Разжимает тело запроса, если используется gzip
+		if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
+			gr, err := gzip.NewReader(r.Body)
+			if err != nil {
+				http.Error(w, "Invalid gzip body", http.StatusBadRequest)
+				return
+			}
+			defer gr.Close()
+			r.Body = gr
+		}
+
+		// Проверяет, поддерживает ли клиент gzip
+		if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			w.Header().Set("Content-Encoding", "gzip")
+			gw := gzip.NewWriter(w)
+			defer gw.Close()
+			w = &compressWriter{ResponseWriter: w, Writer: gw}
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // NewMemStorage - конструктор для MemStorage
@@ -308,13 +347,13 @@ func main() {
 	defer logger.Sync()
 
 	// Маршруты для обновления метрик и получения их значений
-	r.Handle("/update/{type}/{name}/{value}", logger.RequestLogger(handleUpdateMetric(storage))).Methods(http.MethodPost)
-	r.Handle("/value/{type}/{name}", logger.RequestLogger(handleGetValue(storage))).Methods(http.MethodGet)
-	r.Handle("/", logger.RequestLogger(handleGetAllMetrics(storage))).Methods(http.MethodGet)
+	r.Handle("/update/{type}/{name}/{value}", gzipMiddleware(logger.RequestLogger(handleUpdateMetric(storage)))).Methods(http.MethodPost)
+	r.Handle("/value/{type}/{name}", gzipMiddleware(logger.RequestLogger(handleGetValue(storage)))).Methods(http.MethodGet)
+	r.Handle("/", gzipMiddleware(logger.RequestLogger(handleGetAllMetrics(storage)))).Methods(http.MethodGet)
 
 	// Маршруты для работы с JSON
-	r.Handle("/update/", logger.RequestLogger(handleUpdateMetricJSON(storage))).Methods(http.MethodPost)
-	r.Handle("/value/", logger.RequestLogger(handleGetValueJSON(storage))).Methods(http.MethodPost)
+	r.Handle("/update/", gzipMiddleware(logger.RequestLogger(handleUpdateMetricJSON(storage)))).Methods(http.MethodPost)
+	r.Handle("/value/", gzipMiddleware(logger.RequestLogger(handleGetValueJSON(storage)))).Methods(http.MethodPost)
 
 	log.Printf("Server started at %s\n", *addr)
 	log.Fatal(http.ListenAndServe(*addr, r))
