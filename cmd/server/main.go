@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/25x8/metric-gathering/internal/compress"
 	"github.com/25x8/metric-gathering/internal/logger"
 	"html/template"
 	"log"
@@ -170,6 +171,8 @@ func handleGetAllMetrics(s *MemStorage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		allMetrics := s.GetAllMetrics()
 
+		w.Header().Set("Content-Type", "text/html")
+
 		tmpl := `
 		<html>
 		<head><title>Metrics</title></head>
@@ -299,6 +302,10 @@ func main() {
 
 	storage := NewMemStorage()
 	r := mux.NewRouter()
+
+	// сжатие
+	r.Use(compress.GzipDecompressMiddleware)
+	r.Use(compress.GzipCompressMiddleware)
 
 	// logger
 	if err := logger.Initialize("info"); err != nil {
