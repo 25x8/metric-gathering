@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/25x8/metric-gathering/internal/logger"
@@ -19,6 +20,13 @@ type MemStorage struct {
 	sync.Mutex
 	gauges   map[string]float64
 	counters map[string]int64
+}
+
+type Metrics struct {
+	ID    string   `json:"id"`              // имя метрики
+	MType string   `json:"type"`            // gauge или counter
+	Delta *int64   `json:"delta,omitempty"` // значение для counter
+	Value *float64 `json:"value,omitempty"` // значение для gauge
 }
 
 // NewMemStorage - конструктор для MemStorage
@@ -112,6 +120,51 @@ func handleGetValue(s *MemStorage) http.HandlerFunc {
 	}
 }
 
+func handleGetValueJSON(s *MemStorage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "Unsupported content type", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		var m Metrics
+		decoder := json.NewDecoder(r.Body)
+		err := decoder.Decode(&m)
+		if err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		if m.ID == "" || m.MType == "" {
+			http.Error(w, "ID and MType are required", http.StatusBadRequest)
+			return
+		}
+
+		switch m.MType {
+		case "gauge":
+			value, err := s.GetGaugeMetric(m.ID)
+			if err != nil {
+				http.Error(w, "Metric not found", http.StatusNotFound)
+				return
+			}
+			m.Value = &value
+		case "counter":
+			delta, err := s.GetCounterMetric(m.ID)
+			if err != nil {
+				http.Error(w, "Metric not found", http.StatusNotFound)
+				return
+			}
+			m.Delta = &delta
+		default:
+			http.Error(w, "Invalid metric type", http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(m)
+	}
+}
+
 // handleGetAllMetrics - обработчик для получения всех метрик в виде HTML
 func handleGetAllMetrics(s *MemStorage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -183,6 +236,55 @@ func handleUpdateMetric(s *MemStorage) http.Handler {
 	})
 }
 
+func handleUpdateMetricJSON(s *MemStorage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "Unsupported content type", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		var m Metrics
+		decoder := json.NewDecoder(r.Body)
+		err := decoder.Decode(&m)
+		if err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		if m.ID == "" || m.MType == "" {
+			http.Error(w, "ID and MType are required", http.StatusBadRequest)
+			return
+		}
+
+		switch m.MType {
+		case "gauge":
+			if m.Value == nil {
+				http.Error(w, "Value is required for gauge", http.StatusBadRequest)
+				return
+			}
+			s.SaveGaugeMetric(m.ID, *m.Value)
+			// Обновляем значение для ответа
+			updatedValue, _ := s.GetGaugeMetric(m.ID)
+			m.Value = &updatedValue
+		case "counter":
+			if m.Delta == nil {
+				http.Error(w, "Delta is required for counter", http.StatusBadRequest)
+				return
+			}
+			s.SaveCounterMetric(m.ID, *m.Delta)
+			// Обновляем значение для ответа
+			updatedDelta, _ := s.GetCounterMetric(m.ID)
+			m.Delta = &updatedDelta
+		default:
+			http.Error(w, "Invalid metric type", http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(m)
+	}
+}
+
 func main() {
 	// Определение флага для адреса сервера
 	addr := flag.String("a", "localhost:8080", "HTTP server address")
@@ -209,6 +311,10 @@ func main() {
 	r.Handle("/update/{type}/{name}/{value}", logger.RequestLogger(handleUpdateMetric(storage))).Methods(http.MethodPost)
 	r.Handle("/value/{type}/{name}", logger.RequestLogger(handleGetValue(storage))).Methods(http.MethodGet)
 	r.Handle("/", logger.RequestLogger(handleGetAllMetrics(storage))).Methods(http.MethodGet)
+
+	// Маршруты для работы с JSON
+	r.Handle("/update/", logger.RequestLogger(handleUpdateMetricJSON(storage))).Methods(http.MethodPost)
+	r.Handle("/value/", logger.RequestLogger(handleGetValueJSON(storage))).Methods(http.MethodPost)
 
 	log.Printf("Server started at %s\n", *addr)
 	log.Fatal(http.ListenAndServe(*addr, r))
