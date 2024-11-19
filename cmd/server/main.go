@@ -209,6 +209,8 @@ func handleGetAllMetrics(s *MemStorage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		allMetrics := s.GetAllMetrics()
 
+		w.Header().Set("Content-Type", "text/html")
+
 		tmpl := `
 		<html>
 		<head><title>Metrics</title></head>
