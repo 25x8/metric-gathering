@@ -12,10 +12,8 @@ import (
 // MemStorage - структура для хранения метрик в памяти
 type MemStorage struct {
 	sync.Mutex
-	gauges        map[string]float64
-	counters      map[string]int64
-	storeInterval time.Duration
-	filePath      string
+	gauges   map[string]float64
+	counters map[string]int64
 }
 
 // MemStorageData - структура для сериализации метрик
@@ -25,43 +23,25 @@ type MemStorageData struct {
 }
 
 // NewMemStorage - конструктор для MemStorage
-func NewMemStorage(storeInterval time.Duration, filePath string) *MemStorage {
+func NewMemStorage() *MemStorage {
 	return &MemStorage{
-		gauges:        make(map[string]float64),
-		counters:      make(map[string]int64),
-		storeInterval: storeInterval,
-		filePath:      filePath,
+		gauges:   make(map[string]float64),
+		counters: make(map[string]int64),
 	}
 }
 
 // SaveGaugeMetric - сохраняет метрику типа gauge
-func (s *MemStorage) SaveGaugeMetric(name string, value float64) error {
+func (s *MemStorage) SaveGaugeMetric(name string, value float64) {
 	s.Lock()
 	s.gauges[name] = value
 	s.Unlock()
-
-	if s.storeInterval == 0 {
-		if err := s.SaveToFile(); err != nil {
-			log.Printf("Error saving metrics: %v", err)
-			return err
-		}
-	}
-	return nil
 }
 
 // SaveCounterMetric - сохраняет метрику типа counter
-func (s *MemStorage) SaveCounterMetric(name string, value int64) error {
+func (s *MemStorage) SaveCounterMetric(name string, value int64) {
 	s.Lock()
 	s.counters[name] += value
 	s.Unlock()
-
-	if s.storeInterval == 0 {
-		if err := s.SaveToFile(); err != nil {
-			log.Printf("Error saving metrics: %v", err)
-			return err
-		}
-	}
-	return nil
 }
 
 // GetGaugeMetric - получает значение метрики типа gauge
@@ -102,11 +82,11 @@ func (s *MemStorage) GetAllMetrics() map[string]interface{} {
 }
 
 // SaveToFile - сохраняет метрики в файл
-func (s *MemStorage) SaveToFile() error {
+func SaveToFile(s *MemStorage, filePath string) error {
 	s.Lock()
 	defer s.Unlock()
 
-	if s.filePath == "" {
+	if filePath == "" {
 		// Если путь к файлу не задан, пропускаем сохранение
 		return nil
 	}
@@ -116,7 +96,7 @@ func (s *MemStorage) SaveToFile() error {
 		Counters: s.counters,
 	}
 
-	file, err := os.Create(s.filePath)
+	file, err := os.Create(filePath)
 	if err != nil {
 		return err
 	}
@@ -132,16 +112,16 @@ func (s *MemStorage) SaveToFile() error {
 }
 
 // LoadFromFile - загружает метрики из файла
-func (s *MemStorage) LoadFromFile() error {
+func LoadFromFile(s *MemStorage, filePath string) error {
 	s.Lock()
 	defer s.Unlock()
 
-	if s.filePath == "" {
+	if filePath == "" {
 		// Если путь к файлу не задан, пропускаем загрузку
 		return nil
 	}
 
-	file, err := os.Open(s.filePath)
+	file, err := os.Open(filePath)
 	if err != nil {
 		return err
 	}
@@ -161,11 +141,11 @@ func (s *MemStorage) LoadFromFile() error {
 }
 
 // RunPeriodicSave - запускает периодическое сохранение метрик
-func (s *MemStorage) RunPeriodicSave() {
-	ticker := time.NewTicker(s.storeInterval)
+func RunPeriodicSave(s *MemStorage, filePath string, storeInterval time.Duration) {
+	ticker := time.NewTicker(storeInterval)
 	defer ticker.Stop()
 	for range ticker.C {
-		if err := s.SaveToFile(); err != nil {
+		if err := SaveToFile(s, filePath); err != nil {
 			log.Printf("Error saving metrics to file: %v", err)
 		}
 	}
