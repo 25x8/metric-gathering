@@ -1,13 +1,14 @@
 package main
 
 import (
+	"github.com/25x8/metric-gathering/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"
 )
 
 func TestSaveAndRetrieveGaugeMetric(t *testing.T) {
-	store := NewMemStorage(0, "") // Используем синхронное сохранение и пустой путь к файлу
+	store := storage.NewMemStorage(0, "") // Используем синхронное сохранение и пустой путь к файлу
 
 	// Сохраняем метрику типа gauge
 	err := store.SaveGaugeMetric("Alloc", 12345.67)
@@ -20,7 +21,7 @@ func TestSaveAndRetrieveGaugeMetric(t *testing.T) {
 }
 
 func TestSaveAndRetrieveCounterMetric(t *testing.T) {
-	store := NewMemStorage(0, "") // Используем синхронное сохранение и пустой путь к файлу
+	store := storage.NewMemStorage(0, "") // Используем синхронное сохранение и пустой путь к файлу
 
 	// Сохраняем метрику типа counter
 	err := store.SaveCounterMetric("PollCount", 1)
@@ -35,7 +36,7 @@ func TestSaveAndRetrieveCounterMetric(t *testing.T) {
 }
 
 func TestGetNonExistentMetric(t *testing.T) {
-	store := NewMemStorage(0, "") // Используем синхронное сохранение и пустой путь к файлу
+	store := storage.NewMemStorage(0, "") // Используем синхронное сохранение и пустой путь к файлу
 
 	// Попытка получить несуществующую метрику
 	_, err := store.GetGaugeMetric("NonExistent")
@@ -44,7 +45,7 @@ func TestGetNonExistentMetric(t *testing.T) {
 }
 
 func TestGetAllMetrics(t *testing.T) {
-	store := NewMemStorage(0, "") // Используем синхронное сохранение и пустой путь к файлу
+	store := storage.NewMemStorage(0, "") // Используем синхронное сохранение и пустой путь к файлу
 
 	// Сохраняем несколько метрик
 	store.SaveGaugeMetric("Alloc", 12345.67)
@@ -64,7 +65,7 @@ func TestSaveAndLoadMetrics(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 
-	store := NewMemStorage(0, tmpFile.Name())
+	store := storage.NewMemStorage(0, tmpFile.Name())
 
 	// Сохраняем метрики
 	err = store.SaveGaugeMetric("Alloc", 12345.67)
@@ -77,7 +78,7 @@ func TestSaveAndLoadMetrics(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Создаём новое хранилище и загружаем метрики из файла
-	newStore := NewMemStorage(0, tmpFile.Name())
+	newStore := storage.NewMemStorage(0, tmpFile.Name())
 	err = newStore.LoadFromFile()
 	assert.NoError(t, err)
 
