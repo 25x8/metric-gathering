@@ -1,6 +1,7 @@
 package app
 
 import (
+	"database/sql"
 	"flag"
 	"github.com/25x8/metric-gathering/internal/handler"
 	"github.com/25x8/metric-gathering/internal/logger"
@@ -22,6 +23,7 @@ func InitializeApp() (*handler.Handler, string) {
 	storeIntervalFlag := flag.Int("i", 300, "Store interval in seconds (0 for synchronous saving)")
 	fileStoragePathFlag := flag.String("f", "/tmp/metrics-db.json", "File storage path")
 	restoreFlag := flag.Bool("r", true, "Restore metrics from file at startup")
+	databaseDSNFlag := flag.String("d", "", "Database connection string")
 
 	// Парсинг флагов
 	flag.Parse()
@@ -59,6 +61,12 @@ func InitializeApp() (*handler.Handler, string) {
 		}
 	}
 
+	// Обработка databaseDSN
+	databaseDSN := *databaseDSNFlag
+	if envDatabaseDSN := os.Getenv("DATABASE_DSN"); envDatabaseDSN != "" {
+		databaseDSN = envDatabaseDSN
+	}
+
 	// Инициализация логгера
 	if err := logger.Initialize("info"); err != nil {
 		panic(err)
@@ -91,8 +99,30 @@ func InitializeApp() (*handler.Handler, string) {
 		os.Exit(0)
 	}()
 
+	var dbConnection *sql.DB
+
+	if databaseDSN != "" {
+		var err error
+		dbConnection, err = sql.Open("pgx", databaseDSN)
+		if err != nil {
+			log.Fatalf("Unable to open database connection: %v", err)
+		}
+
+		// Проверка соединения
+		if err = dbConnection.Ping(); err != nil {
+			log.Fatalf("Unable to connect to database: %v", err)
+		}
+
+		log.Println("Connected to the database successfully")
+	} else {
+		log.Println("Database DSN is not provided")
+	}
+
 	// Создаем обработчик с хранилищем
-	h := handler.Handler{Storage: newStorage}
+	h := handler.Handler{
+		Storage: newStorage,
+		DB:      dbConnection,
+	}
 
 	return &h, addr
 }
@@ -108,6 +138,9 @@ func InitializeRouter(h *handler.Handler) *mux.Router {
 	// Маршруты для работы с JSON
 	r.Handle("/update/", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandleUpdateMetricJSON)))).Methods(http.MethodPost)
 	r.Handle("/value/", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandleGetValueJSON)))).Methods(http.MethodPost)
+
+	// Добавляем маршрут для /ping
+	r.Handle("/ping", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandlePing)))).Methods(http.MethodGet)
 
 	return r
 }

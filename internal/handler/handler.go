@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/25x8/metric-gathering/internal/storage"
@@ -17,6 +18,7 @@ const (
 
 type Handler struct {
 	Storage *storage.MemStorage
+	DB      *sql.DB
 }
 
 // HandleGetValue - обработчик для получения значения ме  трики
@@ -206,4 +208,27 @@ func (h *Handler) HandleUpdateMetricJSON(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(m)
 
+}
+
+func (h *Handler) HandlePing(w http.ResponseWriter, r *http.Request) {
+	if h.DB == nil {
+		http.Error(w, "Database connection is not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	// Проверка соединения с базой данных
+	err := h.DB.PingContext(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to connect to the database", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+func (h *Handler) CloseDB() {
+	if h.DB != nil {
+		h.DB.Close()
+	}
 }
