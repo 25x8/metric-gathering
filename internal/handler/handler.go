@@ -7,6 +7,7 @@ import (
 	"github.com/25x8/metric-gathering/internal/storage"
 	"github.com/gorilla/mux"
 	"html/template"
+	"io"
 	"net/http"
 	"strconv"
 )
@@ -231,4 +232,35 @@ func (h *Handler) CloseDB() {
 	if h.DB != nil {
 		h.DB.Close()
 	}
+}
+
+func (h *Handler) HandleUpdatesBatch(w http.ResponseWriter, r *http.Request) {
+	var metrics []storage.Metrics
+
+	// Декодирование JSON
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	err = json.Unmarshal(body, &metrics)
+	if err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if len(metrics) == 0 {
+		http.Error(w, "Empty metrics batch", http.StatusBadRequest)
+		return
+	}
+
+	// Обновление метрик в хранилище в рамках одной транзакции
+	err = h.Storage.UpdateMetricsBatch(metrics)
+	if err != nil {
+		http.Error(w, "Failed to update metrics", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

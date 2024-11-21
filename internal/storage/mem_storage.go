@@ -143,3 +143,26 @@ func RunPeriodicSave(s *MemStorage, filePath string, storeInterval time.Duration
 		}
 	}
 }
+
+func (s *MemStorage) UpdateMetricsBatch(metrics []Metrics) error {
+	s.Lock()
+	defer s.Unlock()
+
+	for _, metric := range metrics {
+		switch metric.MType {
+		case "counter":
+			if metric.Delta == nil {
+				continue
+			}
+			s.counters[metric.ID] += *metric.Delta
+		case "gauge":
+			if metric.Value == nil {
+				continue
+			}
+			s.gauges[metric.ID] = *metric.Value
+		default:
+			continue
+		}
+	}
+	return nil
+}

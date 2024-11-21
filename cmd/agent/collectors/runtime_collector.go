@@ -9,63 +9,65 @@ import (
 
 // MetricsCollector - структура для сбора метрик
 type MetricsCollector struct {
-	PollCount int64
-	mu        sync.Mutex
+	PollCount     int64
+	lastPollCount int64
+	mu            sync.Mutex
+	metrics       map[string]interface{}
 }
 
 // NewMetricsCollector - конструктор для MetricsCollector
 func NewMetricsCollector() *MetricsCollector {
-	return &MetricsCollector{}
+	return &MetricsCollector{
+		metrics: make(map[string]interface{}),
+	}
 }
 
 // Collect - метод для сбора метрик
-func (c *MetricsCollector) Collect() map[string]interface{} {
+func (c *MetricsCollector) Collect() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
+	c.metrics["Alloc"] = float64(memStats.Alloc)
+	c.metrics["BuckHashSys"] = float64(memStats.BuckHashSys)
+	c.metrics["Frees"] = float64(memStats.Frees)
+	c.metrics["GCCPUFraction"] = memStats.GCCPUFraction // Это уже float64
+	c.metrics["GCSys"] = float64(memStats.GCSys)
+	c.metrics["HeapAlloc"] = float64(memStats.HeapAlloc)
+	c.metrics["HeapIdle"] = float64(memStats.HeapIdle)
+	c.metrics["HeapInuse"] = float64(memStats.HeapInuse)
+	c.metrics["HeapObjects"] = float64(memStats.HeapObjects)
+	c.metrics["HeapReleased"] = float64(memStats.HeapReleased)
+	c.metrics["HeapSys"] = float64(memStats.HeapSys)
+	c.metrics["LastGC"] = float64(memStats.LastGC)
+	c.metrics["Lookups"] = float64(memStats.Lookups)
+	c.metrics["MCacheInuse"] = float64(memStats.MCacheInuse)
+	c.metrics["MCacheSys"] = float64(memStats.MCacheSys)
+	c.metrics["MSpanInuse"] = float64(memStats.MSpanInuse)
+	c.metrics["MSpanSys"] = float64(memStats.MSpanSys)
+	c.metrics["Mallocs"] = float64(memStats.Mallocs)
+	c.metrics["NextGC"] = float64(memStats.NextGC)
+	c.metrics["NumForcedGC"] = float64(memStats.NumForcedGC)
+	c.metrics["NumGC"] = float64(memStats.NumGC)
+	c.metrics["OtherSys"] = float64(memStats.OtherSys)
+	c.metrics["PauseTotalNs"] = float64(memStats.PauseTotalNs)
+	c.metrics["StackInuse"] = float64(memStats.StackInuse)
+	c.metrics["StackSys"] = float64(memStats.StackSys)
+	c.metrics["Sys"] = float64(memStats.Sys)
+	c.metrics["TotalAlloc"] = float64(memStats.TotalAlloc)
+	c.metrics["RandomValue"] = rand.Float64()
+
 	c.PollCount++
+	c.metrics["PollCount"] = c.PollCount
 
-	metrics := map[string]interface{}{
-		"Alloc":         float64(memStats.Alloc),
-		"BuckHashSys":   float64(memStats.BuckHashSys),
-		"Frees":         float64(memStats.Frees),
-		"GCCPUFraction": float64(memStats.GCCPUFraction),
-		"GCSys":         float64(memStats.GCSys),
-		"HeapAlloc":     float64(memStats.HeapAlloc),
-		"HeapIdle":      float64(memStats.HeapIdle),
-		"HeapInuse":     float64(memStats.HeapInuse),
-		"HeapObjects":   float64(memStats.HeapObjects),
-		"HeapReleased":  float64(memStats.HeapReleased),
-		"HeapSys":       float64(memStats.HeapSys),
-		"LastGC":        float64(memStats.LastGC),
-		"Lookups":       float64(memStats.Lookups),
-		"MCacheInuse":   float64(memStats.MCacheInuse),
-		"MCacheSys":     float64(memStats.MCacheSys),
-		"MSpanInuse":    float64(memStats.MSpanInuse),
-		"MSpanSys":      float64(memStats.MSpanSys),
-		"Mallocs":       float64(memStats.Mallocs),
-		"NextGC":        float64(memStats.NextGC),
-		"NumForcedGC":   float64(memStats.NumForcedGC),
-		"NumGC":         float64(memStats.NumGC),
-		"OtherSys":      float64(memStats.OtherSys),
-		"PauseTotalNs":  float64(memStats.PauseTotalNs),
-		"StackInuse":    float64(memStats.StackInuse),
-		"StackSys":      float64(memStats.StackSys),
-		"Sys":           float64(memStats.Sys),
-		"TotalAlloc":    float64(memStats.TotalAlloc),
-		"PollCount":     int64(c.PollCount), // Явное указание типа int64
-		"RandomValue":   rand.Float64(),     // Random gauge value
-	}
-
-	return metrics
 }
 
 // CollectAndStore - метод для сбора метрик и их сохранения в хранилище
 func (c *MetricsCollector) CollectAndStore(store *storage.MemStorage) error {
-	metrics := c.Collect()
+	c.Collect()
+	metrics := c.GetMetrics()
 
 	for name, value := range metrics {
 		switch v := value.(type) {
@@ -82,5 +84,27 @@ func (c *MetricsCollector) CollectAndStore(store *storage.MemStorage) error {
 		}
 	}
 
+	c.mu.Lock()
+	c.lastPollCount = c.PollCount
+	c.mu.Unlock()
+
 	return nil
+}
+
+func (c *MetricsCollector) GetMetrics() map[string]interface{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	metricsCopy := make(map[string]interface{})
+	for k, v := range c.metrics {
+		if k == "PollCount" {
+			// Compute delta for the counter
+			delta := c.PollCount - c.lastPollCount
+			metricsCopy[k] = delta
+		} else {
+			metricsCopy[k] = v
+		}
+	}
+
+	return metricsCopy
 }

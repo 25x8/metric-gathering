@@ -9,6 +9,11 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+const (
+	Gauge   = "gauge"
+	Counter = "counter"
+)
+
 type DBStorage struct {
 	db *sql.DB
 }
@@ -142,5 +147,49 @@ func (s *DBStorage) Flush() error {
 }
 
 func (s *DBStorage) Load() error {
+	return nil
+}
+
+func (s *DBStorage) UpdateMetricsBatch(metrics []Metrics) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	for _, metric := range metrics {
+		switch metric.MType {
+		case Counter:
+			if metric.Delta == nil {
+				continue
+			}
+			query := `INSERT INTO counters (name, value) VALUES ($1, $2)
+                      ON CONFLICT (name) DO UPDATE SET value = counters.value + EXCLUDED.value;`
+			_, err = tx.Exec(query, metric.ID, *metric.Delta)
+			if err != nil {
+				return err
+			}
+		case Gauge:
+			if metric.Value == nil {
+				continue
+			}
+			query := `INSERT INTO gauges (name, value) VALUES ($1, $2)
+                      ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;`
+			_, err = tx.Exec(query, metric.ID, *metric.Value)
+			if err != nil {
+				return err
+			}
+		default:
+			continue
+		}
+	}
+
 	return nil
 }

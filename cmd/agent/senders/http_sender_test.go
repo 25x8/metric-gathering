@@ -52,3 +52,12 @@ func TestHTTPSender_SendCounter(t *testing.T) {
 	err := sender.Send(metrics)
 	assert.NoError(t, err)
 }
+
+// Helper functions to create pointers to float64 and int64
+func float64Ptr(f float64) *float64 {
+	return &f
+}
+
+func int64Ptr(i int64) *int64 {
+	return &i
+}

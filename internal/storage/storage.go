@@ -8,4 +8,5 @@ type Storage interface {
 	GetAllMetrics() map[string]interface{} // Возвращает все метрики
 	Flush() error
 	Load() error
+	UpdateMetricsBatch(metrics []Metrics) error
 }
