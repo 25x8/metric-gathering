@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/25x8/metric-gathering/internal/models"
 	"log"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -143,4 +144,23 @@ func (s *DBStorage) Flush() error {
 
 func (s *DBStorage) Load() error {
 	return nil
+}
+
+func (s *DBStorage) SaveMetric(metricType, name string, value interface{}) error {
+	switch metricType {
+	case models.Gauge:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("invalid value type for gauge: %T", value)
+		}
+		return s.SaveGaugeMetric(name, v)
+	case models.Counter:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("invalid value type for counter: %T", value)
+		}
+		return s.SaveCounterMetric(name, v)
+	default:
+		return fmt.Errorf("unsupported metric type: %s", metricType)
+	}
 }

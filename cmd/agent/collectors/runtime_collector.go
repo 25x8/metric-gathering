@@ -84,3 +84,49 @@ func (c *MetricsCollector) CollectAndStore(store *storage.MemStorage) error {
 
 	return nil
 }
+
+// CollectBatch - метод для сбора метрик в формате для отправки батчами
+func (c *MetricsCollector) CollectBatch() []map[string]interface{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+
+	c.PollCount++
+
+	// Формируем массив метрик
+	metrics := []map[string]interface{}{
+		{"name": "Alloc", "type": "gauge", "value": float64(memStats.Alloc)},
+		{"name": "BuckHashSys", "type": "gauge", "value": float64(memStats.BuckHashSys)},
+		{"name": "Frees", "type": "gauge", "value": float64(memStats.Frees)},
+		{"name": "GCCPUFraction", "type": "gauge", "value": float64(memStats.GCCPUFraction)},
+		{"name": "GCSys", "type": "gauge", "value": float64(memStats.GCSys)},
+		{"name": "HeapAlloc", "type": "gauge", "value": float64(memStats.HeapAlloc)},
+		{"name": "HeapIdle", "type": "gauge", "value": float64(memStats.HeapIdle)},
+		{"name": "HeapInuse", "type": "gauge", "value": float64(memStats.HeapInuse)},
+		{"name": "HeapObjects", "type": "gauge", "value": float64(memStats.HeapObjects)},
+		{"name": "HeapReleased", "type": "gauge", "value": float64(memStats.HeapReleased)},
+		{"name": "HeapSys", "type": "gauge", "value": float64(memStats.HeapSys)},
+		{"name": "LastGC", "type": "gauge", "value": float64(memStats.LastGC)},
+		{"name": "Lookups", "type": "gauge", "value": float64(memStats.Lookups)},
+		{"name": "MCacheInuse", "type": "gauge", "value": float64(memStats.MCacheInuse)},
+		{"name": "MCacheSys", "type": "gauge", "value": float64(memStats.MCacheSys)},
+		{"name": "MSpanInuse", "type": "gauge", "value": float64(memStats.MSpanInuse)},
+		{"name": "MSpanSys", "type": "gauge", "value": float64(memStats.MSpanSys)},
+		{"name": "Mallocs", "type": "gauge", "value": float64(memStats.Mallocs)},
+		{"name": "NextGC", "type": "gauge", "value": float64(memStats.NextGC)},
+		{"name": "NumForcedGC", "type": "gauge", "value": float64(memStats.NumForcedGC)},
+		{"name": "NumGC", "type": "gauge", "value": float64(memStats.NumGC)},
+		{"name": "OtherSys", "type": "gauge", "value": float64(memStats.OtherSys)},
+		{"name": "PauseTotalNs", "type": "gauge", "value": float64(memStats.PauseTotalNs)},
+		{"name": "StackInuse", "type": "gauge", "value": float64(memStats.StackInuse)},
+		{"name": "StackSys", "type": "gauge", "value": float64(memStats.StackSys)},
+		{"name": "Sys", "type": "gauge", "value": float64(memStats.Sys)},
+		{"name": "TotalAlloc", "type": "gauge", "value": float64(memStats.TotalAlloc)},
+		{"name": "PollCount", "type": "counter", "value": int64(c.PollCount)},
+		{"name": "RandomValue", "type": "gauge", "value": rand.Float64()},
+	}
+
+	return metrics
+}

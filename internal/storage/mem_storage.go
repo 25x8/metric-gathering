@@ -3,6 +3,7 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/25x8/metric-gathering/internal/models"
 	"log"
 	"os"
 	"sync"
@@ -141,5 +142,24 @@ func RunPeriodicSave(s *MemStorage, filePath string, storeInterval time.Duration
 		if err := s.Flush(); err != nil {
 			log.Printf("Error saving metrics to file: %v", err)
 		}
+	}
+}
+
+func (s *MemStorage) SaveMetric(metricType, name string, value interface{}) error {
+	switch metricType {
+	case models.Gauge:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("invalid value type for gauge: %T", value)
+		}
+		return s.SaveGaugeMetric(name, v)
+	case models.Counter:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("invalid value type for counter: %T", value)
+		}
+		return s.SaveCounterMetric(name, v)
+	default:
+		return fmt.Errorf("unsupported metric type: %s", metricType)
 	}
 }

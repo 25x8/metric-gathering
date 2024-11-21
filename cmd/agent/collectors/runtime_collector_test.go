@@ -24,3 +24,24 @@ func TestMetricsCollector_CollectAndStore(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), counterValue)
 }
+
+func TestMetricsCollector_CollectBatch(t *testing.T) {
+	collector := NewMetricsCollector()
+
+	metrics := collector.CollectBatch()
+	if len(metrics) == 0 {
+		t.Errorf("Expected metrics batch, got empty")
+	}
+
+	found := false
+	for _, metric := range metrics {
+		if metric["name"] == "Alloc" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("Expected metric 'Alloc' in batch, but not found")
+	}
+}

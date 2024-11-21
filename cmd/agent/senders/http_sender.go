@@ -3,6 +3,7 @@ package senders
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -74,4 +75,47 @@ func (s *HTTPSender) Send(metrics map[string]interface{}) error {
 		// Игнорируем тело, так как оно не используется
 	}
 	return nil
+}
+
+func (s *HTTPSender) SendBatch(metrics interface{}) error {
+	switch v := metrics.(type) {
+	case map[string]interface{}:
+		// Старый формат - отправляем через старый метод
+		return s.Send(v)
+
+	case []map[string]interface{}:
+		// Новый формат - отправляем батчем через новый маршрут
+		if len(v) == 0 {
+			return nil // Пустые батчи не отправляем
+		}
+
+		var compressedBody bytes.Buffer
+		gzipWriter := gzip.NewWriter(&compressedBody)
+		if err := json.NewEncoder(gzipWriter).Encode(v); err != nil {
+			return err
+		}
+		gzipWriter.Close()
+
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/updates/", s.ServerURL), &compressedBody)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Encoding", "gzip")
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("server responded with status: %v", resp.StatusCode)
+		}
+
+		return nil
+
+	default:
+		return fmt.Errorf("unsupported metric format")
+	}
 }

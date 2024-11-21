@@ -4,16 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/25x8/metric-gathering/internal/models"
 	"github.com/25x8/metric-gathering/internal/storage"
 	"github.com/gorilla/mux"
 	"html/template"
 	"net/http"
 	"strconv"
-)
-
-const (
-	Gauge   = "gauge"
-	Counter = "counter"
 )
 
 type Handler struct {
@@ -28,7 +24,7 @@ func (h *Handler) HandleGetValue(w http.ResponseWriter, r *http.Request) {
 	metricName := vars["name"]
 
 	switch metricType {
-	case Gauge:
+	case models.Gauge:
 		value, err := h.Storage.GetGaugeMetric(metricName)
 		if err != nil {
 			http.Error(w, "Metric not found", http.StatusNotFound)
@@ -36,7 +32,7 @@ func (h *Handler) HandleGetValue(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, "%v", value)
 
-	case Counter:
+	case models.Counter:
 		value, err := h.Storage.GetCounterMetric(metricName)
 		if err != nil {
 			http.Error(w, "Metric not found", http.StatusNotFound)
@@ -55,7 +51,7 @@ func (h *Handler) HandleGetValueJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var m storage.Metrics
+	var m models.Metrics
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&m)
 	if err != nil {
@@ -69,14 +65,14 @@ func (h *Handler) HandleGetValueJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch m.MType {
-	case Gauge:
+	case models.Gauge:
 		value, err := h.Storage.GetGaugeMetric(m.ID)
 		if err != nil {
 			http.Error(w, "Metric not found", http.StatusNotFound)
 			return
 		}
 		m.Value = &value
-	case Counter:
+	case models.Counter:
 		delta, err := h.Storage.GetCounterMetric(m.ID)
 		if err != nil {
 			http.Error(w, "Metric not found", http.StatusNotFound)
@@ -137,7 +133,7 @@ func (h *Handler) HandleUpdateMetric(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch metricType {
-	case Gauge:
+	case models.Gauge:
 		value, err := strconv.ParseFloat(metricValue, 64)
 		if err != nil {
 			http.Error(w, "Invalid gauge value", http.StatusBadRequest)
@@ -145,7 +141,7 @@ func (h *Handler) HandleUpdateMetric(w http.ResponseWriter, r *http.Request) {
 		}
 		h.Storage.SaveGaugeMetric(metricName, value)
 
-	case Counter:
+	case models.Counter:
 		value, err := strconv.ParseInt(metricValue, 10, 64)
 		if err != nil {
 			http.Error(w, "Invalid counter value", http.StatusBadRequest)
@@ -170,7 +166,7 @@ func (h *Handler) HandleUpdateMetricJSON(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var m storage.Metrics
+	var m models.Metrics
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&m)
 	if err != nil {
@@ -184,7 +180,7 @@ func (h *Handler) HandleUpdateMetricJSON(w http.ResponseWriter, r *http.Request)
 	}
 
 	switch m.MType {
-	case Gauge:
+	case models.Gauge:
 		if m.Value == nil {
 			http.Error(w, "Value is required for gauge", http.StatusBadRequest)
 			return
@@ -231,4 +227,22 @@ func (h *Handler) CloseDB() {
 	if h.DB != nil {
 		h.DB.Close()
 	}
+}
+
+func (h *Handler) HandleUpdateMetricsBatch(w http.ResponseWriter, r *http.Request) {
+	var metrics []models.Metric
+	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Обработка метрик
+	for _, metric := range metrics {
+		if err := h.Storage.SaveMetric(metric.Type, metric.Name, metric.Value); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to save metric: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

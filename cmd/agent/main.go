@@ -46,12 +46,13 @@ func main() {
 	for {
 		select {
 		case <-tickerPoll.C:
-			metrics := collector.Collect()
-			log.Println("Metrics collected:", metrics)
+			metrics := collector.CollectBatch() // Собираем метрики в новом формате
+			log.Printf("Metrics batch collected: %v", metrics)
 
 		case <-tickerReport.C:
-			metrics := collector.Collect()
-			err := sender.Send(metrics)
+			// Проверяем, если агенту нужно отправить старый формат
+			metricsOld := collector.Collect() // Старый формат
+			err := sender.SendBatch(metricsOld)
 			if err != nil {
 				log.Printf("Error sending metrics: %v", err)
 			} else {

@@ -131,8 +131,11 @@ func InitializeRouter(h *handler.Handler) *mux.Router {
 	r.Handle("/update/", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandleUpdateMetricJSON)))).Methods(http.MethodPost)
 	r.Handle("/value/", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandleGetValueJSON)))).Methods(http.MethodPost)
 
-	// Добавляем маршрут для /ping
+	// Маршрут для /ping
 	r.Handle("/ping", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandlePing)))).Methods(http.MethodGet)
+
+	// Маршрут для /update
+	r.Handle("/updates/", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandleUpdateMetricsBatch)))).Methods(http.MethodPost)
 
 	return r
 }
