@@ -2,7 +2,9 @@ package senders
 
 import (
 	"bytes"
+	"compress/gzip"
 	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -32,17 +34,44 @@ func (s *HTTPSender) Send(metrics map[string]interface{}) error {
 		}
 
 		url := fmt.Sprintf("%s/update/%s/%s/%v", s.ServerURL, metricType, key, value)
-		req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(nil))
+
+		// Сжатие тела запроса (в данном случае тело пустое, но это пригодится для реальных данных)
+		var compressedBody bytes.Buffer
+		gzipWriter := gzip.NewWriter(&compressedBody)
+		_, err := gzipWriter.Write([]byte{}) // Пустое тело для текущего примера
 		if err != nil {
 			return err
 		}
+		gzipWriter.Close()
+
+		req, err := http.NewRequest(http.MethodPost, url, &compressedBody)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Encoding", "gzip")
+		req.Header.Set("Accept-Encoding", "gzip")
 		req.Header.Set("Content-Type", "text/plain")
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return err
 		}
-		resp.Body.Close()
+		defer resp.Body.Close()
+
+		// Обработка сжатого ответа, если сервер вернул gzip
+		if resp.Header.Get("Content-Encoding") == "gzip" {
+			gzipReader, err := gzip.NewReader(resp.Body)
+			if err != nil {
+				return err
+			}
+			defer gzipReader.Close()
+			_, err = io.ReadAll(gzipReader) // Читаем тело ответа
+			if err != nil {
+				return err
+			}
+		}
+
+		// Игнорируем тело, так как оно не используется
 	}
 	return nil
 }
