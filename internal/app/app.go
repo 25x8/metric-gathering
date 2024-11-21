@@ -73,19 +73,30 @@ func InitializeApp() (*handler.Handler, string) {
 	}
 	defer logger.Sync()
 
-	// Создание экземпляра MemStorage
-	newStorage := storage.NewMemStorage()
+	var storageEngine storage.Storage
+	var dbConnection *sql.DB
 
-	// Восстановление метрик из файла при старте
-	if restore {
-		if err := storage.LoadFromFile(newStorage, fileStoragePath); err != nil {
-			log.Printf("Error loading metrics from file: %v", err)
+	// Выбор хранилища
+	if databaseDSN != "" {
+		dbStorage, err := storage.NewDBStorage(databaseDSN)
+		if err != nil {
+			log.Fatalf("Failed to initialize database storage: %v", err)
 		}
-	}
-
-	// Запуск периодического сохранения метрик
-	if storeInterval > 0 {
-		go storage.RunPeriodicSave(newStorage, fileStoragePath, storeInterval)
+		storageEngine = dbStorage
+		dbConnection = dbStorage.DB()
+		log.Println("Using PostgreSQL storage")
+	} else {
+		memStorage := storage.NewMemStorage(fileStoragePath)
+		storageEngine = memStorage
+		if restore {
+			if err := memStorage.Load(); err != nil {
+				log.Printf("Error loading metrics from file: %v", err)
+			}
+		}
+		if storeInterval > 0 {
+			go storage.RunPeriodicSave(memStorage, fileStoragePath, storeInterval)
+		}
+		log.Println("Using file or in-memory storage")
 	}
 
 	// Обработка сигнала завершения для сохранения метрик
@@ -93,34 +104,15 @@ func InitializeApp() (*handler.Handler, string) {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
-		if err := storage.SaveToFile(newStorage, fileStoragePath); err != nil {
-			log.Printf("Error saving metrics on shutdown: %v", err)
+		if err := storageEngine.Flush(); err != nil {
+			log.Printf("Error during flush: %v", err)
 		}
 		os.Exit(0)
 	}()
 
-	var dbConnection *sql.DB
-
-	if databaseDSN != "" {
-		var err error
-		dbConnection, err = sql.Open("pgx", databaseDSN)
-		if err != nil {
-			log.Fatalf("Unable to open database connection: %v", err)
-		}
-
-		// Проверка соединения
-		if err = dbConnection.Ping(); err != nil {
-			log.Fatalf("Unable to connect to database: %v", err)
-		}
-
-		log.Println("Connected to the database successfully")
-	} else {
-		log.Println("Database DSN is not provided")
-	}
-
-	// Создаем обработчик с хранилищем
+	// Создаем обработчик с выбранным хранилищем
 	h := handler.Handler{
-		Storage: newStorage,
+		Storage: storageEngine,
 		DB:      dbConnection,
 	}
 

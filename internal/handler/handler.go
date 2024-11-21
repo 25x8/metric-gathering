@@ -17,11 +17,11 @@ const (
 )
 
 type Handler struct {
-	Storage *storage.MemStorage
+	Storage storage.Storage
 	DB      *sql.DB
 }
 
-// HandleGetValue - обработчик для получения значения ме  трики
+// HandleGetValue - обработчик для получения значения метрики
 func (h *Handler) HandleGetValue(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	metricType := vars["type"]

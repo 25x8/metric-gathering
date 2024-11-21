@@ -9,42 +9,35 @@ import (
 	"time"
 )
 
-// MemStorage - структура для хранения метрик в памяти
 type MemStorage struct {
 	sync.Mutex
 	gauges   map[string]float64
 	counters map[string]int64
+	filePath string
 }
 
-// MemStorageData - структура для сериализации метрик
-type MemStorageData struct {
-	Gauges   map[string]float64 `json:"gauges"`
-	Counters map[string]int64   `json:"counters"`
-}
-
-// NewMemStorage - конструктор для MemStorage
-func NewMemStorage() *MemStorage {
+func NewMemStorage(filePath string) *MemStorage {
 	return &MemStorage{
 		gauges:   make(map[string]float64),
 		counters: make(map[string]int64),
+		filePath: filePath,
 	}
 }
 
-// SaveGaugeMetric - сохраняет метрику типа gauge
-func (s *MemStorage) SaveGaugeMetric(name string, value float64) {
+func (s *MemStorage) SaveGaugeMetric(name string, value float64) error {
 	s.Lock()
+	defer s.Unlock()
 	s.gauges[name] = value
-	s.Unlock()
+	return nil
 }
 
-// SaveCounterMetric - сохраняет метрику типа counter
-func (s *MemStorage) SaveCounterMetric(name string, value int64) {
+func (s *MemStorage) SaveCounterMetric(name string, delta int64) error {
 	s.Lock()
-	s.counters[name] += value
-	s.Unlock()
+	defer s.Unlock()
+	s.counters[name] += delta
+	return nil
 }
 
-// GetGaugeMetric - получает значение метрики типа gauge
 func (s *MemStorage) GetGaugeMetric(name string) (float64, error) {
 	s.Lock()
 	defer s.Unlock()
@@ -55,7 +48,6 @@ func (s *MemStorage) GetGaugeMetric(name string) (float64, error) {
 	return value, nil
 }
 
-// GetCounterMetric - получает значение метрики типа counter
 func (s *MemStorage) GetCounterMetric(name string) (int64, error) {
 	s.Lock()
 	defer s.Unlock()
@@ -81,61 +73,61 @@ func (s *MemStorage) GetAllMetrics() map[string]interface{} {
 	return allMetrics
 }
 
-// SaveToFile - сохраняет метрики в файл
-func SaveToFile(s *MemStorage, filePath string) error {
+func (s *MemStorage) Flush() error {
 	s.Lock()
 	defer s.Unlock()
 
-	if filePath == "" {
-		// Если путь к файлу не задан, пропускаем сохранение
+	if s.filePath == "" {
 		return nil
 	}
 
-	data := MemStorageData{
-		Gauges:   s.gauges,
-		Counters: s.counters,
-	}
-
-	file, err := os.Create(filePath)
+	file, err := os.Create(s.filePath)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	encoder := json.NewEncoder(file)
-	err = encoder.Encode(data)
-	if err != nil {
-		return err
+	data := map[string]interface{}{
+		"gauges":   s.gauges,
+		"counters": s.counters,
 	}
 
-	return nil
+	return json.NewEncoder(file).Encode(data)
 }
 
-// LoadFromFile - загружает метрики из файла
-func LoadFromFile(s *MemStorage, filePath string) error {
+func (s *MemStorage) Load() error {
 	s.Lock()
 	defer s.Unlock()
 
-	if filePath == "" {
-		// Если путь к файлу не задан, пропускаем загрузку
+	if s.filePath == "" {
 		return nil
 	}
 
-	file, err := os.Open(filePath)
+	file, err := os.Open(s.filePath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // Если файла нет, ничего не делаем
+		}
 		return err
 	}
 	defer file.Close()
 
-	decoder := json.NewDecoder(file)
-	data := MemStorageData{}
-	err = decoder.Decode(&data)
-	if err != nil {
+	data := map[string]interface{}{}
+	if err := json.NewDecoder(file).Decode(&data); err != nil {
 		return err
 	}
 
-	s.gauges = data.Gauges
-	s.counters = data.Counters
+	if gauges, ok := data["gauges"].(map[string]interface{}); ok {
+		for k, v := range gauges {
+			s.gauges[k] = v.(float64)
+		}
+	}
+
+	if counters, ok := data["counters"].(map[string]interface{}); ok {
+		for k, v := range counters {
+			s.counters[k] = int64(v.(float64))
+		}
+	}
 
 	return nil
 }
@@ -144,8 +136,9 @@ func LoadFromFile(s *MemStorage, filePath string) error {
 func RunPeriodicSave(s *MemStorage, filePath string, storeInterval time.Duration) {
 	ticker := time.NewTicker(storeInterval)
 	defer ticker.Stop()
+
 	for range ticker.C {
-		if err := SaveToFile(s, filePath); err != nil {
+		if err := s.Flush(); err != nil {
 			log.Printf("Error saving metrics to file: %v", err)
 		}
 	}
