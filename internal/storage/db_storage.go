@@ -116,6 +116,9 @@ func (s *DBStorage) GetAllMetrics() map[string]interface{} {
 	err := retryOperation(ctx, func() error {
 		var err error
 		gaugeRows, err = s.db.QueryContext(ctx, gaugesQuery)
+		if err := gaugeRows.Err(); err != nil {
+			return err
+		}
 		return err
 	})
 	if err != nil {
@@ -138,6 +141,7 @@ func (s *DBStorage) GetAllMetrics() map[string]interface{} {
 		allMetrics[name] = value
 	}
 
+	// Проверка ошибок после итерации
 	if err := gaugeRows.Err(); err != nil {
 		log.Printf("Error iterating gauge rows: %v", err)
 	}
@@ -148,6 +152,9 @@ func (s *DBStorage) GetAllMetrics() map[string]interface{} {
 	err = retryOperation(ctx, func() error {
 		var err error
 		counterRows, err = s.db.QueryContext(ctx, countersQuery)
+		if err := counterRows.Err(); err != nil {
+			return err
+		}
 		return err
 	})
 	if err != nil {
@@ -170,7 +177,7 @@ func (s *DBStorage) GetAllMetrics() map[string]interface{} {
 		allMetrics[name] = value
 	}
 
-	// Check for errors after iteration
+	// Проверка ошибок после итерации
 	if err := counterRows.Err(); err != nil {
 		log.Printf("Error iterating counter rows: %v", err)
 	}
@@ -179,7 +186,7 @@ func (s *DBStorage) GetAllMetrics() map[string]interface{} {
 }
 
 func (s *DBStorage) Flush() error {
-	// PostgreSQL  уже сохраняет данные
+	// PostgreSQL уже сохраняет данные
 	return nil
 }
 
@@ -231,9 +238,9 @@ func (s *DBStorage) UpdateMetricsBatch(metrics []Metrics) error {
 	})
 }
 
-// retryOperation performs the operation with retries in case of retriable errors
+// retryOperation повторяет запрос при retriable ошибках
 func retryOperation(ctx context.Context, operation func() error) error {
-	maxRetries := 4 // Initial attempt + 3 additional retries
+	maxRetries := 4
 	var err error
 	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 
@@ -280,11 +287,7 @@ func isRetriableError(err error) bool {
 	// Проверка ошибок сети
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		if netErr.Timeout() {
-			return true
-		}
-
-		return false
+		return netErr.Timeout()
 	}
 
 	// Ошибка sql драйвера
