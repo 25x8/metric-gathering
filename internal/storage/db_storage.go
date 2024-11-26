@@ -26,43 +26,36 @@ func (s *DBStorage) DB() *sql.DB {
 	return s.db
 }
 
-func NewDBStorage(dsn string) (*DBStorage, error) {
-	db, err := sql.Open("pgx", dsn)
+func NewDBStorage(db *sql.DB) (*DBStorage, error) {
+
+	ctx := context.Background()
+
+	// Используем retryOperation для проверки соединения
+	err := retryOperation(ctx, func() error {
+		return db.PingContext(ctx)
+	})
+
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database connection check failed: %w", err)
 	}
 
 	storage := &DBStorage{db: db}
 
-	if err := storage.initTables(); err != nil {
+	// Применяем миграции
+	if err := storage.applyMigrations(); err != nil {
 		return nil, err
 	}
 
 	return storage, nil
 }
 
-func (s *DBStorage) initTables() error {
-	query := `
-        CREATE TABLE IF NOT EXISTS gauges (
-            name TEXT PRIMARY KEY,
-            value DOUBLE PRECISION NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS counters (
-            name TEXT PRIMARY KEY,
-            value BIGINT NOT NULL
-        );`
-
-	return retryOperation(context.Background(), func() error {
-		_, err := s.db.Exec(query)
-		return err
-	})
-}
-
 func (s *DBStorage) SaveGaugeMetric(name string, value float64) error {
 	query := `INSERT INTO gauges (name, value) VALUES ($1, $2)
               ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;`
 
-	return retryOperation(context.Background(), func() error {
+	ctx := context.Background()
+
+	return retryOperation(ctx, func() error {
 		_, err := s.db.Exec(query, name, value)
 		return err
 	})
@@ -72,7 +65,9 @@ func (s *DBStorage) SaveCounterMetric(name string, delta int64) error {
 	query := `INSERT INTO counters (name, value) VALUES ($1, $2)
               ON CONFLICT (name) DO UPDATE SET value = counters.value + EXCLUDED.value;`
 
-	return retryOperation(context.Background(), func() error {
+	ctx := context.Background()
+
+	return retryOperation(ctx, func() error {
 		_, err := s.db.Exec(query, name, delta)
 		return err
 	})
@@ -82,7 +77,9 @@ func (s *DBStorage) GetGaugeMetric(name string) (float64, error) {
 	var value float64
 	query := `SELECT value FROM gauges WHERE name = $1`
 
-	err := retryOperation(context.Background(), func() error {
+	ctx := context.Background()
+
+	err := retryOperation(ctx, func() error {
 		return s.db.QueryRow(query, name).Scan(&value)
 	})
 
@@ -96,7 +93,9 @@ func (s *DBStorage) GetCounterMetric(name string) (int64, error) {
 	var value int64
 	query := `SELECT value FROM counters WHERE name = $1`
 
-	err := retryOperation(context.Background(), func() error {
+	ctx := context.Background()
+
+	err := retryOperation(ctx, func() error {
 		return s.db.QueryRow(query, name).Scan(&value)
 	})
 
@@ -113,6 +112,7 @@ func (s *DBStorage) GetAllMetrics() map[string]interface{} {
 	// Получаем все gauge метрики
 	gaugesQuery := `SELECT name, value FROM gauges`
 	var gaugeRows *sql.Rows
+
 	err := retryOperation(ctx, func() error {
 		var err error
 		gaugeRows, err = s.db.QueryContext(ctx, gaugesQuery)
@@ -195,7 +195,9 @@ func (s *DBStorage) Load() error {
 }
 
 func (s *DBStorage) UpdateMetricsBatch(metrics []Metrics) error {
-	return retryOperation(context.Background(), func() error {
+	ctx := context.Background()
+
+	return retryOperation(ctx, func() error {
 		tx, err := s.db.Begin()
 		if err != nil {
 			return err
@@ -253,7 +255,13 @@ func retryOperation(ctx context.Context, operation func() error) error {
 			return err
 		}
 		if i < len(delays) {
-			time.Sleep(delays[i])
+			select {
+			case <-time.After(delays[i]):
+				// Переход к следующей итерации
+			case <-ctx.Done():
+				// Если контекст отменён, возвращаем его ошибку
+				return ctx.Err()
+			}
 		}
 	}
 	return err
@@ -296,4 +304,68 @@ func isRetriableError(err error) bool {
 	}
 
 	return false
+}
+
+func (s *DBStorage) applyMigrations() error {
+	migrations := []struct {
+		version int
+		query   string
+	}{
+		{
+			version: 1,
+			query: `
+                CREATE TABLE IF NOT EXISTS gauges (
+                    name TEXT PRIMARY KEY,
+                    value DOUBLE PRECISION NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS counters (
+                    name TEXT PRIMARY KEY,
+                    value BIGINT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version INTEGER PRIMARY KEY
+                );`,
+		},
+		{
+			version: 2,
+			query: `
+                ALTER TABLE gauges ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                ALTER TABLE counters ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;`,
+		},
+	}
+
+	ctx := context.Background()
+
+	return retryOperation(ctx, func() error {
+		// Убедитесь, что таблица schema_migrations существует
+		_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY);`)
+		if err != nil {
+			return err
+		}
+
+		// Получение текущей версии схемы
+		var currentVersion int
+		err = s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&currentVersion)
+		if err != nil {
+			return err
+		}
+
+		// Применение миграций
+		for _, migration := range migrations {
+			if migration.version > currentVersion {
+				log.Printf("Applying migration %d...", migration.version)
+				_, err := s.db.Exec(migration.query)
+				if err != nil {
+					return fmt.Errorf("failed to apply migration %d: %w", migration.version, err)
+				}
+
+				// Обновление версии схемы
+				_, err = s.db.Exec(`INSERT INTO schema_migrations (version) VALUES ($1)`, migration.version)
+				if err != nil {
+					return fmt.Errorf("failed to update schema version to %d: %w", migration.version, err)
+				}
+			}
+		}
+		return nil
+	})
 }

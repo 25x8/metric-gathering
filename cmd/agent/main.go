@@ -2,13 +2,12 @@ package main
 
 import (
 	"flag"
+	"github.com/25x8/metric-gathering/cmd/agent/collectors"
+	"github.com/25x8/metric-gathering/cmd/agent/senders"
 	"log"
 	"os"
 	"strconv"
 	"time"
-
-	"github.com/25x8/metric-gathering/cmd/agent/collectors"
-	"github.com/25x8/metric-gathering/cmd/agent/senders"
 )
 
 func main() {

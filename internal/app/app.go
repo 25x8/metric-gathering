@@ -78,7 +78,13 @@ func InitializeApp() (*handler.Handler, string) {
 
 	// Выбор хранилища
 	if databaseDSN != "" {
-		dbStorage, err := storage.NewDBStorage(databaseDSN)
+		db, errOpenDb := sql.Open("pgx", databaseDSN)
+
+		if errOpenDb != nil {
+			log.Fatalf("failed to open database: %v", errOpenDb)
+		}
+
+		dbStorage, err := storage.NewDBStorage(db)
 		if err != nil {
 			log.Fatalf("Failed to initialize database storage: %v", err)
 		}
