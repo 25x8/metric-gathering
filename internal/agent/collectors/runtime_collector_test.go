@@ -3,8 +3,8 @@ package collectors
 import (
 	"compress/gzip"
 	"encoding/json"
-	"github.com/25x8/metric-gathering/cmd/agent/senders"
-	"github.com/25x8/metric-gathering/cmd/agent/storage"
+	"github.com/25x8/metric-gathering/internal/agent/senders"
+	"github.com/25x8/metric-gathering/internal/agent/storage"
 	"github.com/stretchr/testify/assert"
 	"io"
 	"net/http"

@@ -1,7 +1,7 @@
 package collectors
 
 import (
-	"github.com/25x8/metric-gathering/cmd/agent/storage"
+	"github.com/25x8/metric-gathering/internal/agent/storage"
 	"math/rand"
 	"runtime"
 	"sync"

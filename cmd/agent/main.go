@@ -2,8 +2,8 @@ package main
 
 import (
 	"flag"
-	"github.com/25x8/metric-gathering/cmd/agent/collectors"
-	"github.com/25x8/metric-gathering/cmd/agent/senders"
+	"github.com/25x8/metric-gathering/internal/agent/collectors"
+	"github.com/25x8/metric-gathering/internal/agent/senders"
 	"log"
 	"os"
 	"strconv"
