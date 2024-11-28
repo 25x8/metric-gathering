@@ -86,7 +86,7 @@ func (c *MetricsCollector) CollectAndStore(store *storage.MemStorage) error {
 
 	c.mu.Lock()
 	c.lastPollCount = c.PollCount
-	c.mu.Unlock()
+	defer c.mu.Unlock()
 
 	return nil
 }

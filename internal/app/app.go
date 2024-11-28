@@ -91,9 +91,10 @@ func InitializeApp() (*handler.Handler, string) {
 		storageEngine = dbStorage
 		dbConnection = dbStorage.DB()
 		log.Println("Using PostgreSQL storage")
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	} else {
 		memStorage := storage.NewMemStorage(fileStoragePath)
-		storageEngine = memStorage
 		if restore {
 			if err := memStorage.Load(); err != nil {
 				log.Printf("Error loading metrics from file: %v", err)
@@ -103,18 +104,16 @@ func InitializeApp() (*handler.Handler, string) {
 			go storage.RunPeriodicSave(memStorage, fileStoragePath, storeInterval)
 		}
 		log.Println("Using file or in-memory storage")
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+		go func() {
+			<-c
+			if err := memStorage.Flush(); err != nil {
+				log.Printf("Error during flush: %v", err)
+			}
+			os.Exit(0)
+		}()
 	}
-
-	// Обработка сигнала завершения для сохранения метрик
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-c
-		if err := storageEngine.Flush(); err != nil {
-			log.Printf("Error during flush: %v", err)
-		}
-		os.Exit(0)
-	}()
 
 	// Создаем обработчик с выбранным хранилищем
 	h := handler.Handler{

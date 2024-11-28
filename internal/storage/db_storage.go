@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgerrcode"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 	"log"
 	"net"
 	"time"
@@ -41,8 +41,12 @@ func NewDBStorage(db *sql.DB) (*DBStorage, error) {
 
 	storage := &DBStorage{db: db}
 
+	if err := goose.SetDialect("postgres"); err != nil {
+		return nil, err
+	}
+
 	// Применяем миграции
-	if err := storage.applyMigrations(); err != nil {
+	if err := goose.Up(db, "migrations"); err != nil {
 		return nil, err
 	}
 
@@ -185,15 +189,6 @@ func (s *DBStorage) GetAllMetrics() map[string]interface{} {
 	return allMetrics
 }
 
-func (s *DBStorage) Flush() error {
-	// PostgreSQL уже сохраняет данные
-	return nil
-}
-
-func (s *DBStorage) Load() error {
-	return nil
-}
-
 func (s *DBStorage) UpdateMetricsBatch(metrics []Metrics) error {
 	ctx := context.Background()
 
@@ -304,68 +299,4 @@ func isRetriableError(err error) bool {
 	}
 
 	return false
-}
-
-func (s *DBStorage) applyMigrations() error {
-	migrations := []struct {
-		version int
-		query   string
-	}{
-		{
-			version: 1,
-			query: `
-                CREATE TABLE IF NOT EXISTS gauges (
-                    name TEXT PRIMARY KEY,
-                    value DOUBLE PRECISION NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS counters (
-                    name TEXT PRIMARY KEY,
-                    value BIGINT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS schema_migrations (
-                    version INTEGER PRIMARY KEY
-                );`,
-		},
-		{
-			version: 2,
-			query: `
-                ALTER TABLE gauges ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-                ALTER TABLE counters ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;`,
-		},
-	}
-
-	ctx := context.Background()
-
-	return retryOperation(ctx, func() error {
-		// Убедитесь, что таблица schema_migrations существует
-		_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY);`)
-		if err != nil {
-			return err
-		}
-
-		// Получение текущей версии схемы
-		var currentVersion int
-		err = s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&currentVersion)
-		if err != nil {
-			return err
-		}
-
-		// Применение миграций
-		for _, migration := range migrations {
-			if migration.version > currentVersion {
-				log.Printf("Applying migration %d...", migration.version)
-				_, err := s.db.Exec(migration.query)
-				if err != nil {
-					return fmt.Errorf("failed to apply migration %d: %w", migration.version, err)
-				}
-
-				// Обновление версии схемы
-				_, err = s.db.Exec(`INSERT INTO schema_migrations (version) VALUES ($1)`, migration.version)
-				if err != nil {
-					return fmt.Errorf("failed to update schema version to %d: %w", migration.version, err)
-				}
-			}
-		}
-		return nil
-	})
 }

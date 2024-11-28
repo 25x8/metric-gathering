@@ -6,7 +6,5 @@ type Storage interface {
 	GetGaugeMetric(name string) (float64, error)
 	GetCounterMetric(name string) (int64, error)
 	GetAllMetrics() map[string]interface{} // Возвращает все метрики
-	Flush() error
-	Load() error
 	UpdateMetricsBatch(metrics []Metrics) error
 }
