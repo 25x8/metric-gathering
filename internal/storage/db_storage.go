@@ -27,7 +27,6 @@ func (s *DBStorage) DB() *sql.DB {
 }
 
 func NewDBStorage(db *sql.DB) (*DBStorage, error) {
-
 	ctx := context.Background()
 
 	// Используем retryOperation для проверки соединения
@@ -41,14 +40,21 @@ func NewDBStorage(db *sql.DB) (*DBStorage, error) {
 
 	storage := &DBStorage{db: db}
 
+	// Настраиваем goose
 	if err := goose.SetDialect("postgres"); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to set goose dialect: %w", err)
 	}
+	goose.SetTableName("goose_db_version")
 
-	// Применяем миграции
-	if err := goose.Up(db, "migrations"); err != nil {
-		return nil, err
+	// Применяем миграции с использованием retryOperation
+	log.Println("Applying database migrations...")
+	err = retryOperation(ctx, func() error {
+		return goose.Up(db, "migrations")
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}
+	log.Println("Database migrations applied successfully.")
 
 	return storage, nil
 }
