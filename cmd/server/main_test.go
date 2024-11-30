@@ -9,7 +9,7 @@ import (
 )
 
 func TestSaveAndRetrieveGaugeMetric(t *testing.T) {
-	store := storage.NewMemStorage() // Создаем новое хранилище без параметров
+	store := storage.NewMemStorage("") // Создаем новое хранилище без файла
 
 	// Сохраняем метрику типа gauge
 	store.SaveGaugeMetric("Alloc", 12345.67)
@@ -21,7 +21,7 @@ func TestSaveAndRetrieveGaugeMetric(t *testing.T) {
 }
 
 func TestSaveAndRetrieveCounterMetric(t *testing.T) {
-	store := storage.NewMemStorage()
+	store := storage.NewMemStorage("")
 
 	// Сохраняем метрику типа counter
 	store.SaveCounterMetric("PollCount", 1)
@@ -34,7 +34,7 @@ func TestSaveAndRetrieveCounterMetric(t *testing.T) {
 }
 
 func TestGetNonExistentMetric(t *testing.T) {
-	store := storage.NewMemStorage()
+	store := storage.NewMemStorage("")
 
 	// Попытка получить несуществующую метрику
 	_, err := store.GetGaugeMetric("NonExistent")
@@ -43,7 +43,7 @@ func TestGetNonExistentMetric(t *testing.T) {
 }
 
 func TestGetAllMetrics(t *testing.T) {
-	store := storage.NewMemStorage()
+	store := storage.NewMemStorage("")
 
 	// Сохраняем несколько метрик
 	store.SaveGaugeMetric("Alloc", 12345.67)
@@ -63,19 +63,19 @@ func TestSaveAndLoadMetrics(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 
-	store := storage.NewMemStorage()
+	store := storage.NewMemStorage(tmpFile.Name())
 
 	// Сохраняем метрики
 	store.SaveGaugeMetric("Alloc", 12345.67)
 	store.SaveCounterMetric("PollCount", 3)
 
 	// Явно сохраняем метрики в файл
-	err = storage.SaveToFile(store, tmpFile.Name())
+	err = store.Flush()
 	assert.NoError(t, err)
 
 	// Создаём новое хранилище и загружаем метрики из файла
-	newStore := storage.NewMemStorage()
-	err = storage.LoadFromFile(newStore, tmpFile.Name())
+	newStore := storage.NewMemStorage(tmpFile.Name())
+	err = newStore.Load()
 	assert.NoError(t, err)
 
 	// Проверяем, что метрики загрузились корректно

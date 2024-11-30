@@ -2,13 +2,12 @@ package main
 
 import (
 	"flag"
+	"github.com/25x8/metric-gathering/internal/agent/collectors"
+	"github.com/25x8/metric-gathering/internal/agent/senders"
 	"log"
 	"os"
 	"strconv"
 	"time"
-
-	"github.com/25x8/metric-gathering/cmd/agent/collectors"
-	"github.com/25x8/metric-gathering/cmd/agent/senders"
 )
 
 func main() {
@@ -46,12 +45,17 @@ func main() {
 	for {
 		select {
 		case <-tickerPoll.C:
-			metrics := collector.Collect()
-			log.Println("Metrics collected:", metrics)
+			collector.Collect()
+			log.Println("Metrics collected")
 
 		case <-tickerReport.C:
-			metrics := collector.Collect()
+			collector.Collect()
+			metrics := collector.GetMetrics()
+			if len(metrics) == 0 {
+				continue
+			}
 			err := sender.Send(metrics)
+
 			if err != nil {
 				log.Printf("Error sending metrics: %v", err)
 			} else {
