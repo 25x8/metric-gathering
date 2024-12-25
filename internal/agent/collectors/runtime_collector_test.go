@@ -3,13 +3,14 @@ package collectors
 import (
 	"compress/gzip"
 	"encoding/json"
-	"github.com/25x8/metric-gathering/internal/agent/senders"
-	"github.com/25x8/metric-gathering/internal/agent/storage"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/25x8/metric-gathering/internal/agent/senders"
+	"github.com/25x8/metric-gathering/internal/agent/storage"
+	"github.com/stretchr/testify/assert"
 )
 
 type Metric struct {
@@ -149,7 +150,7 @@ func TestHTTPSender_Send(t *testing.T) {
 	sender := senders.NewHTTPSender(testServer.URL)
 
 	t.Run("Send empty metrics", func(t *testing.T) {
-		err := sender.Send(map[string]interface{}{})
+		err := sender.Send(map[string]interface{}{}, "")
 		assert.NoError(t, err, "Отправка пустых метрик не должна вызывать ошибок")
 	})
 
@@ -167,7 +168,7 @@ func TestHTTPSender_Send(t *testing.T) {
 		metrics := map[string]interface{}{
 			"unsupported_metric": "string_value",
 		}
-		err := sender.Send(metrics)
+		err := sender.Send(metrics, "")
 		assert.NoError(t, err, "Метрики с неподдерживаемыми типами просто игнорируются")
 	})
 

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/25x8/metric-gathering/internal/utils"
 )
 
 // Metric Структура метрики
@@ -94,8 +96,8 @@ func (s *HTTPSender) SendBatch(metrics map[string]interface{}) error {
 	return nil
 }
 
-func (s *HTTPSender) Send(metrics map[string]interface{}) error {
-	for key, value := range metrics {
+func (s *HTTPSender) Send(metrics map[string]interface{}, key string) error {
+	for keyName, value := range metrics {
 		var metricType string
 		switch value.(type) {
 		case int64:
@@ -106,9 +108,9 @@ func (s *HTTPSender) Send(metrics map[string]interface{}) error {
 			continue
 		}
 
-		url := fmt.Sprintf("%s/update/%s/%s/%v", s.ServerURL, metricType, key, value)
+		url := fmt.Sprintf("%s/update/%s/%s/%v", s.ServerURL, metricType, keyName, value)
 
-		// Сжатие тела запроса (в данном случае тело пустое, но это пригодится для реальных данных)
+		// Сжатие тела запроса
 		var compressedBody bytes.Buffer
 		gzipWriter := gzip.NewWriter(&compressedBody)
 		_, err := gzipWriter.Write([]byte{}) // Пустое тело для текущего примера
@@ -117,6 +119,12 @@ func (s *HTTPSender) Send(metrics map[string]interface{}) error {
 		}
 		gzipWriter.Close()
 
+		// Вычисляем хеш тела, если задан ключ
+		var hash string
+		if key != "" {
+			hash = utils.CalculateHash(compressedBody.Bytes(), key)
+		}
+
 		req, err := http.NewRequest(http.MethodPost, url, &compressedBody)
 		if err != nil {
 			return err
@@ -124,6 +132,11 @@ func (s *HTTPSender) Send(metrics map[string]interface{}) error {
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
 		req.Header.Set("Content-Type", "text/plain")
+
+		// Добавляем хеш в заголовок, если он рассчитан
+		if hash != "" {
+			req.Header.Set("HashSHA256", hash)
+		}
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {

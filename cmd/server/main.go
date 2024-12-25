@@ -1,15 +1,16 @@
 package main
 
 import (
-	"github.com/25x8/metric-gathering/internal/app"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"log"
 	"net/http"
+
+	"github.com/25x8/metric-gathering/internal/app"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
 	// Инициализация приложения и получение обработчика и адреса
-	h, addr := app.InitializeApp()
+	h, addr, key := app.InitializeApp()
 
 	// Обеспечиваем синхронизацию логгера перед завершением работы
 	defer app.SyncLogger()
@@ -19,6 +20,10 @@ func main() {
 
 	// Инициализация маршрутизатора
 	r := app.InitializeRouter(h)
+
+	if key != "" {
+		r.Use(app.MiddlewareWithHash(key))
+	}
 
 	// Запуск сервера
 	log.Printf("Server started at %s\n", addr)
