@@ -38,9 +38,8 @@ func main() {
 		}
 	}
 
-	key := *keyFlag
 	if envKey := os.Getenv("KEY"); envKey != "" {
-		key = envKey
+		*keyFlag = envKey
 	}
 
 	collector := collectors.NewMetricsCollector()
@@ -61,7 +60,7 @@ func main() {
 			if len(metrics) == 0 {
 				continue
 			}
-			err := sender.Send(metrics, key)
+			err := sender.Send(metrics, *keyFlag)
 
 			if err != nil {
 				log.Printf("Error sending metrics: %v", err)

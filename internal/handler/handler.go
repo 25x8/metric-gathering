@@ -1,15 +1,17 @@
 package handler
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/25x8/metric-gathering/internal/storage"
-	"github.com/gorilla/mux"
 	"html/template"
 	"io"
 	"net/http"
 	"strconv"
+
+	"github.com/25x8/metric-gathering/internal/storage"
+	"github.com/gorilla/mux"
 )
 
 const (
@@ -56,11 +58,28 @@ func (h *Handler) HandleGetValueJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var m storage.Metrics
-	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&m)
+	// Читаем тело запроса
+	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		return
+	}
+
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	var m storage.Metrics
+	decoder := json.NewDecoder(bytes.NewReader(bodyBytes)) // Восстанавливаем r.Body для json.Decoder
+	err = decoder.Decode(&m)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+
+		// Возвращаем ошибку с телом запроса
+		response := map[string]interface{}{
+			"error":   "Invalid JSON",
+			"reqBody": string(bodyBytes), // Тело запроса
+		}
+		json.NewEncoder(w).Encode(response)
 		return
 	}
 

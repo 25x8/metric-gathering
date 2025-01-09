@@ -113,7 +113,7 @@ func (s *HTTPSender) Send(metrics map[string]interface{}, key string) error {
 		// Сжатие тела запроса
 		var compressedBody bytes.Buffer
 		gzipWriter := gzip.NewWriter(&compressedBody)
-		_, err := gzipWriter.Write([]byte{}) // Пустое тело для текущего примера
+		_, err := gzipWriter.Write([]byte{})
 		if err != nil {
 			return err
 		}

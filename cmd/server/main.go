@@ -19,11 +19,7 @@ func main() {
 	defer h.CloseDB()
 
 	// Инициализация маршрутизатора
-	r := app.InitializeRouter(h)
-
-	if key != "" {
-		r.Use(app.MiddlewareWithHash(key))
-	}
+	r := app.InitializeRouter(h, key)
 
 	// Запуск сервера
 	log.Printf("Server started at %s\n", addr)

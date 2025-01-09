@@ -2,6 +2,7 @@ package app
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"flag"
 	"io"
 	"log"
@@ -25,6 +26,11 @@ func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if key == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if !isValidSHA256(key) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -173,27 +179,57 @@ func InitializeApp() (*handler.Handler, string, string) {
 	return &h, addr, key
 }
 
-func InitializeRouter(h *handler.Handler) *mux.Router {
+func InitializeRouter(h *handler.Handler, key string) *mux.Router {
 	r := mux.NewRouter()
 
+	// Проверяем, передан ли key, и определяем middleware
+	var wrapWithHash func(http.Handler) http.Handler
+	if key != "" {
+		wrapWithHash = MiddlewareWithHash(key)
+	} else {
+		wrapWithHash = func(next http.Handler) http.Handler {
+			return next // Если key не задан, просто возвращаем обработчик
+		}
+	}
+
+	// Функция для обертки обработчиков
+	wrapHandler := func(handler http.Handler) http.Handler {
+		return middleware.GzipMiddleware(
+			logger.RequestLogger(
+				wrapWithHash(handler),
+			),
+		)
+	}
+
 	// Маршруты для обновления метрик и получения их значений
-	r.Handle("/update/{type}/{name}/{value}", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandleUpdateMetric)))).Methods(http.MethodPost)
-	r.Handle("/value/{type}/{name}", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandleGetValue)))).Methods(http.MethodGet)
-	r.Handle("/", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandleGetAllMetrics)))).Methods(http.MethodGet)
+	r.Handle("/update/{type}/{name}/{value}", wrapHandler(http.HandlerFunc(h.HandleUpdateMetric))).Methods(http.MethodPost)
+	r.Handle("/value/{type}/{name}", wrapHandler(http.HandlerFunc(h.HandleGetValue))).Methods(http.MethodGet)
+	r.Handle("/", wrapHandler(http.HandlerFunc(h.HandleGetAllMetrics))).Methods(http.MethodGet)
 
 	// Маршруты для работы с JSON
-	r.Handle("/update/", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandleUpdateMetricJSON)))).Methods(http.MethodPost)
-	r.Handle("/value/", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandleGetValueJSON)))).Methods(http.MethodPost)
+	r.Handle("/update/", wrapHandler(http.HandlerFunc(h.HandleUpdateMetricJSON))).Methods(http.MethodPost)
+	r.Handle("/value/", wrapHandler(http.HandlerFunc(h.HandleGetValueJSON))).Methods(http.MethodPost)
 
 	// Добавляем маршрут для /ping
-	r.Handle("/ping", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandlePing)))).Methods(http.MethodGet)
+	r.Handle("/ping", wrapHandler(http.HandlerFunc(h.HandlePing))).Methods(http.MethodGet)
 
 	// Добавляем маршрут для /updates/
-	r.Handle("/updates/", middleware.GzipMiddleware(logger.RequestLogger(http.HandlerFunc(h.HandleUpdatesBatch)))).Methods(http.MethodPost)
+	r.Handle("/updates/", wrapHandler(http.HandlerFunc(h.HandleUpdatesBatch))).Methods(http.MethodPost)
 
 	return r
 }
 
 func SyncLogger() {
 	logger.Sync()
+}
+
+func isValidSHA256(key string) bool {
+	// SHA-256 хэш всегда длиной 64 символа
+	if len(key) != 64 {
+		return false
+	}
+
+	// Проверяем, что строка состоит из шестнадцатеричных символов
+	_, err := hex.DecodeString(key)
+	return err == nil
 }
