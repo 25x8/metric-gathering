@@ -1,10 +1,17 @@
 package collectors
 
 import (
-	"github.com/25x8/metric-gathering/internal/agent/storage"
+	"log"
 	"math/rand"
 	"runtime"
+	"strconv"
 	"sync"
+	"time"
+
+	"github.com/25x8/metric-gathering/internal/agent/storage"
+
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 // MetricsCollector - структура для сбора метрик
@@ -20,6 +27,33 @@ func NewMetricsCollector() *MetricsCollector {
 	return &MetricsCollector{
 		metrics: make(map[string]interface{}),
 	}
+}
+
+func (c *MetricsCollector) CollectSystemMetrics() {
+	vMem, err := mem.VirtualMemory()
+
+	if err != nil {
+		log.Printf("Error collecting memory metrics: %v", err)
+		return
+	}
+
+	cpuUtilization, err := cpu.Percent(time.Second, true)
+	
+	if err != nil {
+		log.Printf("Error collecting memory metrics: %v", err)
+		return
+	}
+
+	c.metrics["TotalMemory"] = float64(vMem.Total)
+	c.metrics["FreeMemory"] = float64(vMem.Free)
+
+	for i, cpuLoad := range cpuUtilization {
+		metricName := "CPUutilization" + strconv.Itoa(i + 1)
+		c.metrics[metricName] = cpuLoad
+	}
+
+	log.Println("System metrics collected")
+
 }
 
 // Collect - метод для сбора метрик
