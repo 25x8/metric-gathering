@@ -2,12 +2,13 @@ package main
 
 import (
 	"flag"
-	"github.com/25x8/metric-gathering/internal/agent/collectors"
-	"github.com/25x8/metric-gathering/internal/agent/senders"
 	"log"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/25x8/metric-gathering/internal/agent/collectors"
+	"github.com/25x8/metric-gathering/internal/agent/senders"
 )
 
 func main() {
@@ -15,6 +16,7 @@ func main() {
 	addr := flag.String("a", "localhost:8080", "HTTP server address")
 	reportInterval := flag.Int("r", 10, "Report interval in seconds")
 	pollInterval := flag.Int("p", 2, "Poll interval in seconds")
+	keyFlag := flag.String("k", "", "Secret key for hashing")
 
 	// Парсинг флагов
 	flag.Parse()
@@ -36,6 +38,10 @@ func main() {
 		}
 	}
 
+	if envKey := os.Getenv("KEY"); envKey != "" {
+		*keyFlag = envKey
+	}
+
 	collector := collectors.NewMetricsCollector()
 	sender := senders.NewHTTPSender("http://" + *addr)
 
@@ -54,7 +60,7 @@ func main() {
 			if len(metrics) == 0 {
 				continue
 			}
-			err := sender.Send(metrics)
+			err := sender.Send(metrics, *keyFlag)
 
 			if err != nil {
 				log.Printf("Error sending metrics: %v", err)
