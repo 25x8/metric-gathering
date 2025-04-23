@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/25x8/metric-gathering/internal/app"
+	"github.com/25x8/metric-gathering/internal/storage"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -21,6 +22,9 @@ func main() {
 	defer app.SyncLogger()
 
 	h, addr, key := app.InitializeApp()
+
+	// Получаем конкретную реализацию хранилища для проверки его типа при завершении
+	storageImpl := h.Storage
 
 	defer h.CloseDB()
 
@@ -67,5 +71,13 @@ func main() {
 	// Ожидаем сигнал завершения
 	<-stop
 	log.Println("Server shutdown initiated...")
+
+	// Если хранилище в памяти, сохраняем его состояние
+	if memStorage, ok := storageImpl.(*storage.MemStorage); ok {
+		if err := memStorage.Flush(); err != nil {
+			log.Printf("Error during flush: %v", err)
+		}
+	}
+
 	log.Println("Server exited")
 }

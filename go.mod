@@ -1,19 +1,20 @@
 module github.com/25x8/metric-gathering
 
-go 1.22.6
+go 1.23
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/gorilla/mux v1.8.1
 	github.com/jackc/pgconn v1.14.3
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/pressly/goose/v3 v3.23.0
+	github.com/shirou/gopsutil/v4 v4.25.1
 	github.com/stretchr/testify v1.10.0
 	go.uber.org/zap v1.27.0
 )
 
 require (
-	github.com/DATA-DOG/go-sqlmock v1.5.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/ebitengine/purego v0.8.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
@@ -29,7 +30,6 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
-	github.com/shirou/gopsutil/v4 v4.25.1 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
