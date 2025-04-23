@@ -2,6 +2,8 @@ package utils
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCalculateHash(t *testing.T) {
@@ -31,6 +33,25 @@ func TestCalculateHash(t *testing.T) {
 			if got != tt.expected {
 				t.Errorf("CalculateHash() = %v, want %v", got, tt.expected)
 			}
+		})
+	}
+}
+
+func TestCalculateHashEdgeCases(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		key  string
+	}{
+		{"Empty data and key", []byte{}, ""},
+		{"Nil data", nil, "some-key"},
+		{"Long key", []byte("data"), "very-long-key-that-exceeds-normal-key-length-for-testing-purposes"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CalculateHash(tt.data, tt.key)
+			assert.NotEmpty(t, result, "Hash result should not be empty")
 		})
 	}
 }

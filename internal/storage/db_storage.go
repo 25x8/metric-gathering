@@ -26,6 +26,9 @@ const (
 	maxRetryInterval  = 15 * time.Second
 )
 
+// gooseUp - переменная для моккинга goose.Up в тестах
+var gooseUp = goose.Up
+
 type DBStorage struct {
 	db *sql.DB
 }
@@ -54,10 +57,10 @@ func NewDBStorage(db *sql.DB) (*DBStorage, error) {
 	}
 	goose.SetTableName("goose_db_version")
 
-	// Применяем миграции с использованием retryOperation
+	// Применяем миграции с использованием retryOperation и gooseUp
 	log.Println("Applying database migrations...")
 	err = retryOperation(ctx, func() error {
-		return goose.Up(db, "migrations")
+		return gooseUp(db, "migrations")
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply migrations: %w", err)
