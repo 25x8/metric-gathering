@@ -15,16 +15,23 @@ import (
 )
 
 const (
-	Gauge   = "gauge"
+	// Gauge - тип метрики с плавающей точкой
+	Gauge = "gauge"
+	// Counter - тип метрики-счетчика
 	Counter = "counter"
 )
 
+// Handler обрабатывает HTTP-запросы для метрик.
+// Предоставляет методы для сохранения, получения и обновления метрик.
 type Handler struct {
-	Storage storage.Storage
-	DB      *sql.DB
+	Storage storage.Storage // хранилище метрик
+	DB      *sql.DB         // подключение к базе данных (если используется)
 }
 
-// HandleGetValue - обработчик для получения значения метрики
+// HandleGetValue обрабатывает GET-запросы для получения значения метрики по имени и типу.
+// URL формат: /value/{type}/{name}, где type - тип метрики (gauge или counter),
+// name - имя метрики.
+// Возвращает текстовое представление значения метрики.
 func (h *Handler) HandleGetValue(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	metricType := vars["type"]
@@ -52,6 +59,9 @@ func (h *Handler) HandleGetValue(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// HandleGetValueJSON обрабатывает POST-запросы с JSON-телом для получения значения метрики.
+// Ожидает JSON в формате: {"id": "метрика", "type": "тип"}.
+// Возвращает JSON с добавленным значением метрики в поле value или delta.
 func (h *Handler) HandleGetValueJSON(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Content-Type") != "application/json" {
 		http.Error(w, "Unsupported content type", http.StatusUnsupportedMediaType)
@@ -112,7 +122,8 @@ func (h *Handler) HandleGetValueJSON(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(m)
 }
 
-// HandleGetAllMetrics - обработчик для получения всех метрик в виде HTML
+// HandleGetAllMetrics обрабатывает GET-запросы для получения всех метрик.
+// Возвращает HTML-страницу с таблицей всех метрик и их значений.
 func (h *Handler) HandleGetAllMetrics(w http.ResponseWriter, r *http.Request) {
 	allMetrics := h.Storage.GetAllMetrics()
 
@@ -143,7 +154,9 @@ func (h *Handler) HandleGetAllMetrics(w http.ResponseWriter, r *http.Request) {
 	t.Execute(w, allMetrics)
 }
 
-// HandleUpdateMetric - обработчик для обновления метрики
+// HandleUpdateMetric обрабатывает POST-запросы для обновления значения метрики.
+// URL формат: /update/{type}/{name}/{value}, где type - тип метрики (gauge или counter),
+// name - имя метрики, value - новое значение.
 func (h *Handler) HandleUpdateMetric(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
@@ -183,6 +196,10 @@ func (h *Handler) HandleUpdateMetric(w http.ResponseWriter, r *http.Request) {
 
 }
 
+// HandleUpdateMetricJSON обрабатывает POST-запросы с JSON-телом для обновления значения метрики.
+// Ожидает JSON в формате: {"id": "метрика", "type": "тип", "value": число} для gauge
+// или {"id": "метрика", "type": "тип", "delta": число} для counter.
+// Возвращает обновленный JSON с сохраненным значением.
 func (h *Handler) HandleUpdateMetricJSON(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("Content-Type") != "application/json" {
