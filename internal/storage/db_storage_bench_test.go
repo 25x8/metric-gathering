@@ -132,12 +132,3 @@ func BenchmarkDBStorage_UpdateMetricsBatch(b *testing.B) {
 	// Пропускаем тест, т.к. он требует много настройки для правильной имитации
 	b.Skip("Skipping UpdateMetricsBatch benchmark as it requires complex setup")
 }
-
-// Вспомогательные функции для создания указателей
-func ptrFloat64(v float64) *float64 {
-	return &v
-}
-
-func ptrInt64(v int64) *int64 {
-	return &v
-}

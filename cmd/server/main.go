@@ -47,7 +47,9 @@ func main() {
 			if err := pprof.WriteHeapProfile(profileFile); err != nil {
 				log.Printf("Failed to write profile: %v", err)
 			}
-			profileFile.Close()
+			if err := profileFile.Close(); err != nil {
+				log.Printf("Failed to close profile file: %v", err)
+			}
 			log.Println("Profile saved to profiles/base.pprof")
 		}()
 	}

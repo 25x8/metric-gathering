@@ -6,13 +6,15 @@ import (
 
 	"github.com/25x8/metric-gathering/internal/storage"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSaveAndRetrieveGaugeMetric(t *testing.T) {
 	store := storage.NewMemStorage("") // Создаем новое хранилище без файла
 
 	// Сохраняем метрику типа gauge
-	store.SaveGaugeMetric("Alloc", 12345.67)
+	err := store.SaveGaugeMetric("Alloc", 12345.67)
+	require.NoError(t, err)
 
 	// Извлекаем и проверяем значение
 	value, err := store.GetGaugeMetric("Alloc")
@@ -24,8 +26,11 @@ func TestSaveAndRetrieveCounterMetric(t *testing.T) {
 	store := storage.NewMemStorage("")
 
 	// Сохраняем метрику типа counter
-	store.SaveCounterMetric("PollCount", 1)
-	store.SaveCounterMetric("PollCount", 2)
+	err := store.SaveCounterMetric("PollCount", 1)
+	require.NoError(t, err)
+
+	err = store.SaveCounterMetric("PollCount", 2)
+	require.NoError(t, err)
 
 	// Извлекаем и проверяем значение
 	value, err := store.GetCounterMetric("PollCount")
@@ -46,8 +51,11 @@ func TestGetAllMetrics(t *testing.T) {
 	store := storage.NewMemStorage("")
 
 	// Сохраняем несколько метрик
-	store.SaveGaugeMetric("Alloc", 12345.67)
-	store.SaveCounterMetric("PollCount", 3)
+	err := store.SaveGaugeMetric("Alloc", 12345.67)
+	require.NoError(t, err)
+
+	err = store.SaveCounterMetric("PollCount", 3)
+	require.NoError(t, err)
 
 	// Извлекаем все метрики
 	allMetrics := store.GetAllMetrics()
@@ -61,20 +69,33 @@ func TestSaveAndLoadMetrics(t *testing.T) {
 	// Создаём временный файл
 	tmpFile, err := os.CreateTemp("", "metrics_test_*.json")
 	assert.NoError(t, err)
-	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 
-	store := storage.NewMemStorage(tmpFile.Name())
+	tmpName := tmpFile.Name()
+	err = tmpFile.Close()
+	require.NoError(t, err)
+
+	defer func() {
+		err := os.Remove(tmpName) // Удаляем файл после теста
+		if err != nil {
+			t.Logf("Failed to remove temp file: %v", err)
+		}
+	}()
+
+	store := storage.NewMemStorage(tmpName)
 
 	// Сохраняем метрики
-	store.SaveGaugeMetric("Alloc", 12345.67)
-	store.SaveCounterMetric("PollCount", 3)
+	err = store.SaveGaugeMetric("Alloc", 12345.67)
+	require.NoError(t, err)
+
+	err = store.SaveCounterMetric("PollCount", 3)
+	require.NoError(t, err)
 
 	// Явно сохраняем метрики в файл
 	err = store.Flush()
 	assert.NoError(t, err)
 
 	// Создаём новое хранилище и загружаем метрики из файла
-	newStore := storage.NewMemStorage(tmpFile.Name())
+	newStore := storage.NewMemStorage(tmpName)
 	err = newStore.Load()
 	assert.NoError(t, err)
 
