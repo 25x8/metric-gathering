@@ -13,6 +13,7 @@ import (
 
 	"github.com/25x8/metric-gathering/internal/agent/collectors"
 	"github.com/25x8/metric-gathering/internal/agent/senders"
+	"github.com/25x8/metric-gathering/internal/utils"
 )
 
 func worker(ctx context.Context, metricsChan <-chan map[string]interface{}, sender *senders.HTTPSender, wg *sync.WaitGroup, keyFlag string) {
@@ -45,9 +46,18 @@ func main() {
 	pollInterval := flag.Int("p", 2, "Poll interval in seconds")
 	keyFlag := flag.String("k", "", "Secret key for hashing")
 	rateLimit := flag.Int("l", 2, "Number of outgoing requests")
+	// Добавляем флаг для включения профилирования памяти
+	memProfile := flag.Bool("memprofile", false, "enable memory profiling")
 
 	// Парсинг флагов
 	flag.Parse()
+
+	// Если нужно профилирование, запускаем его
+	var stopProfile func()
+	if *memProfile {
+		stopProfile = utils.StartMemProfiler("agent_base.pprof")
+		defer stopProfile()
+	}
 
 	// Чтение переменных окружения
 	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
@@ -110,10 +120,10 @@ func main() {
 	go func() {
 		for {
 			select {
-			case <- ctx.Done():
+			case <-ctx.Done():
 				log.Println("Stopping metrics collection...")
 				return
-			case <- tickerPoll.C:
+			case <-tickerPoll.C:
 				collector.CollectSystemMetrics()
 			}
 		}

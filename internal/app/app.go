@@ -8,9 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/25x8/metric-gathering/internal/handler"
@@ -130,6 +128,7 @@ func InitializeApp() (*handler.Handler, string, string) {
 
 	var storageEngine storage.Storage
 	var dbConnection *sql.DB
+	var memStorage *storage.MemStorage
 
 	// Выбор хранилища
 	if databaseDSN != "" {
@@ -148,7 +147,7 @@ func InitializeApp() (*handler.Handler, string, string) {
 		log.Println("Using PostgreSQL storage")
 
 	} else {
-		memStorage := storage.NewMemStorage(fileStoragePath)
+		memStorage = storage.NewMemStorage(fileStoragePath)
 		storageEngine = memStorage
 		if restore {
 			if err := memStorage.Load(); err != nil {
@@ -159,15 +158,6 @@ func InitializeApp() (*handler.Handler, string, string) {
 			go storage.RunPeriodicSave(memStorage, fileStoragePath, storeInterval)
 		}
 		log.Println("Using file or in-memory storage")
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-		go func() {
-			<-c
-			if err := memStorage.Flush(); err != nil {
-				log.Printf("Error during flush: %v", err)
-			}
-			os.Exit(0)
-		}()
 	}
 
 	// Создаем обработчик с выбранным хранилищем

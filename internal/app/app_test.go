@@ -1,82 +1,98 @@
 package app
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestMiddlewareWithHash(t *testing.T) {
+func TestIsValidSHA256(t *testing.T) {
 	tests := []struct {
-		name       string
-		key        string
-		header     string
-		wantStatus int
-		wantBody   string
+		name     string
+		key      string
+		expected bool
 	}{
 		{
-			name:       "Valid SHA256 Key and Header",
-			key:        "a3f7b5c8d9e4f1234567890abcdefabcdefabcdefabcdefabcdefabcdefabcdef",
-			header:     "some-hash-value",
-			wantStatus: http.StatusOK,
-			wantBody:   "OK",
+			name:     "Valid SHA256",
+			key:      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			expected: true,
 		},
 		{
-			name:       "Invalid Key (not SHA256)",
-			key:        "invalidkey",
-			header:     "some-hash-value",
-			wantStatus: http.StatusOK,
-			wantBody:   "OK",
+			name:     "Invalid length",
+			key:      "0123456789abcdef",
+			expected: false,
 		},
 		{
-			name:       "Missing HashSHA256 Header",
-			key:        "a3f7b5c8d9e4f1234567890abcdefabcdefabcdefabcdefabcdefabcdefabcdef",
-			header:     "",
-			wantStatus: http.StatusOK,
-			wantBody:   "OK",
+			name:     "Invalid characters",
+			key:      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdez",
+			expected: false,
+		},
+		{
+			name:     "Empty string",
+			key:      "",
+			expected: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Моковый обработчик
-			mockHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			result := isValidSHA256(tt.key)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestMiddlewareWithHash(t *testing.T) {
+	tests := []struct {
+		name           string
+		key            string
+		requestHash    string
+		requestBody    string
+		expectedStatus int
+	}{
+		{
+			name:           "Empty key passes through",
+			key:            "",
+			requestHash:    "anyhash",
+			requestBody:    "test body",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Invalid key format passes through",
+			key:            "invalidkey",
+			requestHash:    "anyhash",
+			requestBody:    "test body",
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Создаем тестовый обработчик, который всегда возвращает OK
+			nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("OK"))
 			})
 
-			// Создаем мидлваре
+			// Создаем middleware с заданным ключом
 			middleware := MiddlewareWithHash(tt.key)
 
-			// Создаем сервер
-			handler := middleware(mockHandler)
-			server := httptest.NewServer(handler)
-			defer server.Close()
-
-			// Создаем запрос
-			req, err := http.NewRequest(http.MethodGet, server.URL, nil)
-			assert.NoError(t, err)
-
-			// Устанавливаем заголовок, если он задан
-			if tt.header != "" {
-				req.Header.Set("HashSHA256", tt.header)
+			// Создаем тестовый запрос с телом
+			req := httptest.NewRequest("POST", "/test", strings.NewReader(tt.requestBody))
+			if tt.requestHash != "" {
+				req.Header.Set("HashSHA256", tt.requestHash)
 			}
 
-			// Выполняем запрос
-			resp, err := http.DefaultClient.Do(req)
-			assert.NoError(t, err)
-			defer resp.Body.Close()
+			// Создаем recorder для записи ответа
+			rr := httptest.NewRecorder()
+
+			// Применяем middleware
+			middleware(nextHandler).ServeHTTP(rr, req)
 
 			// Проверяем статус ответа
-			assert.Equal(t, tt.wantStatus, resp.StatusCode, "Unexpected status code")
-
-			// Проверяем тело ответа
-			body, err := io.ReadAll(resp.Body)
-			assert.NoError(t, err)
-			assert.Contains(t, string(body), tt.wantBody, "Response body does not match expected output")
+			assert.Equal(t, tt.expectedStatus, rr.Code)
 		})
 	}
 }

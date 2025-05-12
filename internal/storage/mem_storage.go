@@ -144,10 +144,15 @@ func (s *MemStorage) Load() error {
 
 // RunPeriodicSave - запускает периодическое сохранение метрик
 func RunPeriodicSave(s *MemStorage, filePath string, storeInterval time.Duration) {
+	// Используем ticker для точного периодического выполнения
 	ticker := time.NewTicker(storeInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
+	for {
+		// Ждем следующего тика
+		<-ticker.C
+
+		// Сохраняем метрики
 		if err := s.Flush(); err != nil {
 			log.Printf("Error saving metrics to file: %v", err)
 		}

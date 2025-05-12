@@ -38,7 +38,7 @@ func (c *MetricsCollector) CollectSystemMetrics() {
 	}
 
 	cpuUtilization, err := cpu.Percent(time.Second, true)
-	
+
 	if err != nil {
 		log.Printf("Error collecting memory metrics: %v", err)
 		return
@@ -48,7 +48,7 @@ func (c *MetricsCollector) CollectSystemMetrics() {
 	c.metrics["FreeMemory"] = float64(vMem.Free)
 
 	for i, cpuLoad := range cpuUtilization {
-		metricName := "CPUutilization" + strconv.Itoa(i + 1)
+		metricName := "CPUutilization" + strconv.Itoa(i+1)
 		c.metrics[metricName] = cpuLoad
 	}
 

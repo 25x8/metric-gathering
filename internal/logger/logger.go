@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // Log будет доступен всему коду как синглтон.
@@ -19,12 +20,38 @@ func Initialize(level string) error {
 	if err != nil {
 		return err
 	}
-	// создаём новую конфигурацию логера
-	cfg := zap.NewProductionConfig()
-	// устанавливаем уровень
-	cfg.Level = lvl
+
+	// Создаем упрощенную конфигурацию с меньшим потреблением памяти
+	encoderConfig := zapcore.EncoderConfig{
+		TimeKey:        "ts",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      zapcore.OmitKey, // Отключаем логирование вызывающего кода
+		FunctionKey:    zapcore.OmitKey, // Отключаем логирование имени функции
+		MessageKey:     "msg",
+		StacktraceKey:  zapcore.OmitKey, // Отключаем стектрейсы
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.StringDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
+
+	// Создаем базовую конфигурацию без сэмплирования
+	cfg := zap.Config{
+		Level:            lvl,
+		Development:      false,
+		Sampling:         nil, // Отключаем сэмплирование для экономии памяти
+		Encoding:         "json",
+		EncoderConfig:    encoderConfig,
+		OutputPaths:      []string{"stdout"},
+		ErrorOutputPaths: []string{"stderr"},
+	}
+
 	// создаём логер на основе конфигурации
-	zl, err := cfg.Build()
+	zl, err := cfg.Build(
+		zap.WithCaller(false), // Отключаем информацию о вызывающем коде
+	)
 	if err != nil {
 		return err
 	}
@@ -53,12 +80,12 @@ func RequestLogger(h http.Handler) http.Handler {
 
 		h.ServeHTTP(ww, r)
 
-		Log.Info("Request processed",
+		// Логируем только важную информацию
+		Log.Info("Request",
 			zap.String("uri", r.RequestURI),
 			zap.String("method", r.Method),
 			zap.Duration("duration", time.Since(start)),
 			zap.Int("status", ww.statusCode),
-			zap.Int("response_size", ww.responseSize),
 		)
 	})
 }

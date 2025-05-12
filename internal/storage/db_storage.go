@@ -5,18 +5,29 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
+	"math"
+	"math/rand"
+	"net"
+	"time"
+
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgerrcode"
 	"github.com/pressly/goose/v3"
-	"log"
-	"net"
-	"time"
 )
 
 const (
 	Gauge   = "gauge"
 	Counter = "counter"
+
+	// Константы для повторения операций при ошибках базы данных
+	maxRetries        = 4
+	baseRetryInterval = 1 * time.Second
+	maxRetryInterval  = 15 * time.Second
 )
+
+// gooseUp - переменная для моккинга goose.Up в тестах
+var gooseUp = goose.Up
 
 type DBStorage struct {
 	db *sql.DB
@@ -46,10 +57,10 @@ func NewDBStorage(db *sql.DB) (*DBStorage, error) {
 	}
 	goose.SetTableName("goose_db_version")
 
-	// Применяем миграции с использованием retryOperation
+	// Применяем миграции с использованием retryOperation и gooseUp
 	log.Println("Applying database migrations...")
 	err = retryOperation(ctx, func() error {
-		return goose.Up(db, "migrations")
+		return gooseUp(db, "migrations")
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply migrations: %w", err)
@@ -241,31 +252,39 @@ func (s *DBStorage) UpdateMetricsBatch(metrics []Metrics) error {
 	})
 }
 
-// retryOperation повторяет запрос при retriable ошибках
-func retryOperation(ctx context.Context, operation func() error) error {
-	maxRetries := 4
+// retryOperation - переменная-функция для повторного выполнения операций с базой данных
+var retryOperation = func(ctx context.Context, operation func() error) error {
 	var err error
-	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
-
-	for i := 0; i < maxRetries; i++ {
+	for attempt := 1; attempt <= maxRetries; attempt++ {
 		err = operation()
 		if err == nil {
 			return nil
 		}
+
 		if !isRetriableError(err) {
 			return err
 		}
-		if i < len(delays) {
-			select {
-			case <-time.After(delays[i]):
-				// Переход к следующей итерации
-			case <-ctx.Done():
-				// Если контекст отменён, возвращаем его ошибку
-				return ctx.Err()
-			}
+
+		// Экспоненциальное увеличение задержки
+		waitTime := time.Duration(math.Pow(2, float64(attempt-1))) * baseRetryInterval
+		if waitTime > maxRetryInterval {
+			waitTime = maxRetryInterval
+		}
+
+		// Добавляем случайное отклонение
+		jitter := time.Duration(rand.Int63n(int64(waitTime) / 4))
+		waitTime = waitTime - (waitTime / 8) + jitter
+
+		timer := time.NewTimer(waitTime)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+			// Продолжаем цикл повторных попыток
 		}
 	}
-	return err
+	return fmt.Errorf("operation failed after %d attempts: %w", maxRetries, err)
 }
 
 // isRetriableError проверяет, является ли ошибка временной и стоит ли повторить попытку
