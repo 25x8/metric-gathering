@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -14,7 +15,18 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+var (
+	buildVersion = "N/A"
+	buildDate    = "N/A"
+	buildCommit  = "N/A"
+)
+
 func main() {
+	// Вывод информации о сборке
+	fmt.Printf("Build version: %s\n", buildVersion)
+	fmt.Printf("Build date: %s\n", buildDate)
+	fmt.Printf("Build commit: %s\n", buildCommit)
+
 	memProfile := flag.Bool("memprofile", false, "enable memory profiling")
 	flag.Parse()
 
@@ -47,7 +59,9 @@ func main() {
 			if err := pprof.WriteHeapProfile(profileFile); err != nil {
 				log.Printf("Failed to write profile: %v", err)
 			}
-			profileFile.Close()
+			if err := profileFile.Close(); err != nil {
+				log.Printf("Failed to close profile file: %v", err)
+			}
 			log.Println("Profile saved to profiles/base.pprof")
 		}()
 	}
