@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"crypto/rsa"
 	"database/sql"
 	"encoding/hex"
 	"flag"
@@ -19,7 +21,6 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// добавляем проверку хеша входящего запроса и генерацию хеша ответа
 func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -33,14 +34,12 @@ func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Проверяем заголовок HashSHA256
 			hashHeader := r.Header.Get("HashSHA256")
 			if hashHeader == "" {
 				http.Error(w, "Missing HashSHA256 header", http.StatusBadRequest)
 				return
 			}
 
-			// Считываем тело запроса
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
 				http.Error(w, "Error reading request body", http.StatusInternalServerError)
@@ -48,17 +47,49 @@ func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
 			}
 			defer r.Body.Close()
 
-			// Вычисляем ожидаемый хеш
 			expectedHash := utils.CalculateHash(body, key)
 			if hashHeader != expectedHash {
 				http.Error(w, "Invalid hash", http.StatusBadRequest)
 				return
 			}
 
-			// Устанавливаем заголовок ответа с хешем
 			w.Header().Set("HashSHA256", expectedHash)
 
-			// Передаём управление следующему обработчику
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// MiddlewareWithDecryption добавляет расшифровку данных с помощью приватного ключа
+func MiddlewareWithDecryption(privateKey *rsa.PrivateKey) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if privateKey == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if r.Header.Get("Content-Encrypted") != "true" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			encryptedBody, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Error reading encrypted request body", http.StatusInternalServerError)
+				return
+			}
+			defer r.Body.Close()
+
+			decryptedData, err := utils.DecryptWithPrivateKey(encryptedBody, privateKey)
+			if err != nil {
+				http.Error(w, "Failed to decrypt request data", http.StatusBadRequest)
+				return
+			}
+
+			r.Body = io.NopCloser(bytes.NewReader(decryptedData))
+			r.ContentLength = int64(len(decryptedData))
+
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -169,8 +200,20 @@ func InitializeApp() (*handler.Handler, string, string) {
 	return &h, addr, key
 }
 
-func InitializeRouter(h *handler.Handler, key string) *mux.Router {
+func InitializeRouter(h *handler.Handler, key string, privateKeyPath string) *mux.Router {
 	r := mux.NewRouter()
+
+	// Загружаем приватный ключ, если указан путь к файлу
+	var privateKey *rsa.PrivateKey
+	if privateKeyPath != "" {
+		var err error
+		privateKey, err = utils.LoadPrivateKey(privateKeyPath)
+		if err != nil {
+			log.Printf("Failed to load private key: %v", err)
+		} else {
+			log.Printf("Private key loaded successfully from %s", privateKeyPath)
+		}
+	}
 
 	// Проверяем, передан ли key, и определяем middleware
 	var wrapWithHash func(http.Handler) http.Handler
@@ -182,11 +225,23 @@ func InitializeRouter(h *handler.Handler, key string) *mux.Router {
 		}
 	}
 
+	// Определяем middleware для расшифровки
+	var wrapWithDecryption func(http.Handler) http.Handler
+	if privateKey != nil {
+		wrapWithDecryption = MiddlewareWithDecryption(privateKey)
+	} else {
+		wrapWithDecryption = func(next http.Handler) http.Handler {
+			return next // Если приватный ключ не задан, просто возвращаем обработчик
+		}
+	}
+
 	// Функция для обертки обработчиков
 	wrapHandler := func(handler http.Handler) http.Handler {
 		return middleware.GzipMiddleware(
 			logger.RequestLogger(
-				wrapWithHash(handler),
+				wrapWithHash(
+					wrapWithDecryption(handler),
+				),
 			),
 		)
 	}

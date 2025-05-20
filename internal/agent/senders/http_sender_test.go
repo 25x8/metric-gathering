@@ -36,7 +36,7 @@ func TestHTTPSender_Send(t *testing.T) {
 	}
 
 	// Отправляем метрики
-	err := sender.Send(metrics, "")
+	err := sender.Send(metrics, "", nil)
 	assert.NoError(t, err)
 }
 
@@ -58,7 +58,7 @@ func TestHTTPSender_SendCounter(t *testing.T) {
 	}
 
 	// Отправляем метрики
-	err := sender.Send(metrics, "")
+	err := sender.Send(metrics, "", nil)
 	assert.NoError(t, err)
 }
 
