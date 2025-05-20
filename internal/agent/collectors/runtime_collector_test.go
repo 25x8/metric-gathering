@@ -111,14 +111,12 @@ func TestMetricsCollector_CollectAndStoreMultipleTimes(t *testing.T) {
 	err = collector.CollectAndStore(store)
 	assert.NoError(t, err)
 
-	// Проверяем, что счетчик PollCount в хранилище корректно накоплен
 	value, err := store.GetCounterMetric("PollCount")
 	assert.NoError(t, err)
 	assert.Equal(t, int64(5), value, "PollCount должен быть равен 5 после двух сборов")
 }
 
 func TestHTTPSender_Send(t *testing.T) {
-	// Создаем тестовый HTTP-сервер
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method, "Должен использовать метод POST")
 		assert.Equal(t, "/updates/", r.URL.Path, "URL-адрес должен быть /updates/")
@@ -133,12 +131,10 @@ func TestHTTPSender_Send(t *testing.T) {
 		body, err := io.ReadAll(gzipReader)
 		assert.NoError(t, err, "Тело запроса должно быть прочитано без ошибок")
 
-		// Декодируем JSON
 		var metrics []Metric
 		err = json.Unmarshal(body, &metrics)
 		assert.NoError(t, err, "Тело запроса должно быть корректным JSON")
 
-		// Проверяем полученные метрики
 		assert.Greater(t, len(metrics), 0, "Должен быть хотя бы один элемент в метриках")
 		assert.Equal(t, "gauge", metrics[0].MType, "Тип метрики должен быть 'counter'")
 
@@ -146,11 +142,10 @@ func TestHTTPSender_Send(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	// Создаем HTTPSender
 	sender := senders.NewHTTPSender(testServer.URL)
 
 	t.Run("Send empty metrics", func(t *testing.T) {
-		err := sender.Send(map[string]interface{}{}, "")
+		err := sender.Send(map[string]interface{}{}, "", nil)
 		assert.NoError(t, err, "Отправка пустых метрик не должна вызывать ошибок")
 	})
 
@@ -159,7 +154,7 @@ func TestHTTPSender_Send(t *testing.T) {
 			"Alloc":       float64(123),
 			"BuckHashSys": 56.78,
 		}
-		err := sender.SendBatch(metrics)
+		err := sender.SendBatch(metrics, nil)
 		assert.NoError(t, err, "Отправка валидных метрик не должна вызывать ошибок")
 
 	})
@@ -168,7 +163,7 @@ func TestHTTPSender_Send(t *testing.T) {
 		metrics := map[string]interface{}{
 			"unsupported_metric": "string_value",
 		}
-		err := sender.Send(metrics, "")
+		err := sender.Send(metrics, "", nil)
 		assert.NoError(t, err, "Метрики с неподдерживаемыми типами просто игнорируются")
 	})
 

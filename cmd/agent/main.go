@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"flag"
 	"fmt"
 	"log"
@@ -23,7 +24,7 @@ var (
 	buildCommit  = "N/A"
 )
 
-func worker(ctx context.Context, metricsChan <-chan map[string]interface{}, sender *senders.HTTPSender, wg *sync.WaitGroup, keyFlag string) {
+func worker(ctx context.Context, metricsChan <-chan map[string]interface{}, sender *senders.HTTPSender, wg *sync.WaitGroup, keyFlag string, publicKey *rsa.PublicKey) {
 	defer wg.Done()
 	for {
 		select {
@@ -35,12 +36,22 @@ func worker(ctx context.Context, metricsChan <-chan map[string]interface{}, send
 				return
 			}
 
-			err := sender.Send(metrics, keyFlag)
-
+			err := sender.SendBatch(metrics, publicKey)
 			if err != nil {
-				log.Printf("Error sending metrics: %v", err)
+				if err.Error() == "data too large for RSA encryption, use individual sends" {
+					log.Println("Batch too large for encryption, using individual sends")
+				} else {
+					log.Printf("Error sending metrics batch: %v, falling back to individual sends", err)
+				}
+
+				err = sender.Send(metrics, keyFlag, publicKey)
+				if err != nil {
+					log.Printf("Error sending metrics: %v", err)
+				} else {
+					log.Printf("Metrics sent successfully")
+				}
 			} else {
-				log.Printf("Metrics sent successfully")
+				log.Printf("Metrics batch sent successfully")
 			}
 		}
 	}
@@ -52,14 +63,13 @@ func main() {
 	fmt.Printf("Build date: %s\n", buildDate)
 	fmt.Printf("Build commit: %s\n", buildCommit)
 
-	// Определение флагов
 	addr := flag.String("a", "localhost:8080", "HTTP server address")
 	reportInterval := flag.Int("r", 10, "Report interval in seconds")
 	pollInterval := flag.Int("p", 2, "Poll interval in seconds")
 	keyFlag := flag.String("k", "", "Secret key for hashing")
 	rateLimit := flag.Int("l", 2, "Number of outgoing requests")
-	// Добавляем флаг для включения профилирования памяти
 	memProfile := flag.Bool("memprofile", false, "enable memory profiling")
+	cryptoKeyPath := flag.String("crypto-key", "", "Path to public key file for encryption")
 
 	// Парсинг флагов
 	flag.Parse()
@@ -98,6 +108,21 @@ func main() {
 		}
 	}
 
+	if envCryptoKey := os.Getenv("CRYPTO_KEY"); envCryptoKey != "" {
+		*cryptoKeyPath = envCryptoKey
+	}
+
+	// Загружаем публичный ключ, если указан путь к файлу
+	var publicKey *rsa.PublicKey
+	if *cryptoKeyPath != "" {
+		var err error
+		publicKey, err = utils.LoadPublicKey(*cryptoKeyPath)
+		if err != nil {
+			log.Fatalf("Failed to load public key: %v", err)
+		}
+		log.Printf("Public key loaded successfully from %s", *cryptoKeyPath)
+	}
+
 	collector := collectors.NewMetricsCollector()
 	sender := senders.NewHTTPSender("http://" + *addr)
 
@@ -113,7 +138,7 @@ func main() {
 	// Worker pool
 	for i := 0; i < *rateLimit; i++ {
 		wg.Add(1)
-		go worker(ctx, metricsChan, sender, wg, *keyFlag)
+		go worker(ctx, metricsChan, sender, wg, *keyFlag, publicKey)
 	}
 
 	go func() {

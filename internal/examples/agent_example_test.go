@@ -57,7 +57,7 @@ func Example_agentSender() {
 
 	// Отправляем метрики
 	log.Println("Отправка метрик на сервер...")
-	err := sender.SendBatch(metrics)
+	err := sender.SendBatch(metrics, nil)
 	if err != nil {
 		log.Printf("Ошибка отправки метрик: %v\n", err)
 	} else {
@@ -120,7 +120,7 @@ func Example_agentRun() {
 			select {
 			case <-ticker.C:
 				metrics := collector.GetMetrics()
-				err := sender.SendBatch(metrics)
+				err := sender.SendBatch(metrics, nil)
 				if err != nil {
 					log.Printf("Ошибка отправки метрик: %v\n", err)
 				} else {
@@ -159,7 +159,7 @@ func Example_agentWithHash() {
 
 	// Отправляем метрики с подписью
 	log.Println("Отправка метрик с подписью...")
-	err := sender.Send(metrics, key)
+	err := sender.Send(metrics, key, nil)
 	if err != nil {
 		log.Printf("Ошибка отправки метрик: %v\n", err)
 	} else {
