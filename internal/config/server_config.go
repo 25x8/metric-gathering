@@ -6,7 +6,6 @@ import (
 	"strconv"
 )
 
-// ServerConfig represents the configuration for the server
 type ServerConfig struct {
 	Address       string `json:"address"`
 	Restore       bool   `json:"restore"`
@@ -17,9 +16,7 @@ type ServerConfig struct {
 	Key           string `json:"key"`
 }
 
-// LoadServerConfig loads configuration from a JSON file
 func LoadServerConfig(filePath string) (*ServerConfig, error) {
-	// Default configuration
 	config := &ServerConfig{
 		Address:       "localhost:8080",
 		Restore:       true,
@@ -27,7 +24,6 @@ func LoadServerConfig(filePath string) (*ServerConfig, error) {
 		StoreFile:     "/tmp/metrics-db.json",
 	}
 
-	// Read and parse the config file if it exists
 	if filePath != "" {
 		file, err := os.ReadFile(filePath)
 		if err != nil {
@@ -43,7 +39,6 @@ func LoadServerConfig(filePath string) (*ServerConfig, error) {
 	return config, nil
 }
 
-// GetStoreIntervalAsBool converts the StoreInterval string to a boolean value
 func GetBoolFromString(value string) (bool, error) {
 	return strconv.ParseBool(value)
 }

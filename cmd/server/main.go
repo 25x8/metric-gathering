@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -11,13 +10,12 @@ import (
 	"syscall"
 
 	"github.com/25x8/metric-gathering/internal/app"
+	"github.com/25x8/metric-gathering/internal/buildinfo"
 	"github.com/25x8/metric-gathering/internal/storage"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// Добавляем флаги из app.go
 func init() {
-	// Определяем флаги, которые используются в app.go
 	flag.String("a", "localhost:8080", "HTTP server address")
 	flag.Int("i", 300, "Store interval in seconds (0 for synchronous saving)")
 	flag.String("f", "/tmp/metrics-db.json", "File storage path")
@@ -26,31 +24,20 @@ func init() {
 	flag.String("k", "", "Secret key for hashing")
 }
 
-var (
-	buildVersion = "N/A"
-	buildDate    = "N/A"
-	buildCommit  = "N/A"
-)
-
 func main() {
-	fmt.Printf("Build version: %s\n", buildVersion)
-	fmt.Printf("Build date: %s\n", buildDate)
-	fmt.Printf("Build commit: %s\n", buildCommit)
+	buildinfo.PrintBuildInfo()
 
 	memProfile := flag.Bool("memprofile", false, "enable memory profiling")
 	cryptoKeyPath := flag.String("crypto-key", "", "Path to private key file for decryption")
 	configPath := flag.String("c", "", "Path to JSON config file")
 	configAltPath := flag.String("config", "", "Path to JSON config file (alternative)")
 
-	// Парсинг флагов
 	flag.Parse()
 
-	// Если альтернативный флаг для конфига задан, используем его
 	if *configPath == "" && *configAltPath != "" {
 		*configPath = *configAltPath
 	}
 
-	// Чтение переменной окружения для конфига
 	if envConfig := os.Getenv("CONFIG"); envConfig != "" && *configPath == "" {
 		*configPath = envConfig
 	}

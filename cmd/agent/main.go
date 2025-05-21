@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rsa"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -15,14 +14,9 @@ import (
 
 	"github.com/25x8/metric-gathering/internal/agent/collectors"
 	"github.com/25x8/metric-gathering/internal/agent/senders"
+	"github.com/25x8/metric-gathering/internal/buildinfo"
 	"github.com/25x8/metric-gathering/internal/config"
 	"github.com/25x8/metric-gathering/internal/utils"
-)
-
-var (
-	buildVersion = "N/A"
-	buildDate    = "N/A"
-	buildCommit  = "N/A"
 )
 
 func worker(ctx context.Context, metricsChan <-chan map[string]interface{}, sender *senders.HTTPSender, wg *sync.WaitGroup, keyFlag string, publicKey *rsa.PublicKey) {
@@ -59,12 +53,8 @@ func worker(ctx context.Context, metricsChan <-chan map[string]interface{}, send
 }
 
 func main() {
-	// Вывод информации о сборке
-	fmt.Printf("Build version: %s\n", buildVersion)
-	fmt.Printf("Build date: %s\n", buildDate)
-	fmt.Printf("Build commit: %s\n", buildCommit)
+	buildinfo.PrintBuildInfo()
 
-	// Определение флагов
 	addr := flag.String("a", "localhost:8080", "HTTP server address")
 	reportInterval := flag.Int("r", 10, "Report interval in seconds")
 	pollInterval := flag.Int("p", 2, "Poll interval in seconds")
@@ -74,23 +64,18 @@ func main() {
 	cryptoKeyPath := flag.String("crypto-key", "", "Path to public key file for encryption")
 	configPath := flag.String("c", "", "Path to JSON config file")
 
-	// Альтернативный флаг для конфига
 	configAltFlag := flag.String("config", "", "Path to JSON config file (alternative)")
 
-	// Парсинг флагов
 	flag.Parse()
 
-	// Если альтернативный флаг задан, используем его
 	if *configPath == "" && *configAltFlag != "" {
 		*configPath = *configAltFlag
 	}
 
-	// Чтение переменной окружения для пути к конфигу
 	if envConfig := os.Getenv("CONFIG"); envConfig != "" && *configPath == "" {
 		*configPath = envConfig
 	}
 
-	// Загрузка конфигурации
 	var cfg *config.AgentConfig
 	var err error
 	if *configPath != "" {
@@ -100,7 +85,6 @@ func main() {
 		} else {
 			log.Printf("Loaded configuration from %s", *configPath)
 
-			// Применяем значения из конфигурации, только если флаги не установлены
 			if flag.Lookup("a").Value.String() == "localhost:8080" {
 				*addr = cfg.Address
 			}
@@ -127,14 +111,12 @@ func main() {
 		}
 	}
 
-	// Если нужно профилирование, запускаем его
 	var stopProfile func()
 	if *memProfile {
 		stopProfile = utils.StartMemProfiler("agent_base.pprof")
 		defer stopProfile()
 	}
 
-	// Чтение переменных окружения (приоритет над конфигурационным файлом)
 	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
 		*addr = envAddr
 	}
@@ -165,7 +147,6 @@ func main() {
 		*cryptoKeyPath = envCryptoKey
 	}
 
-	// Загружаем публичный ключ, если указан путь к файлу
 	var publicKey *rsa.PublicKey
 	if *cryptoKeyPath != "" {
 		var err error
@@ -185,10 +166,8 @@ func main() {
 	metricsChan := make(chan map[string]interface{}, 100)
 	wg := &sync.WaitGroup{}
 
-	// Контекст для gracefull shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Worker pool
 	for i := 0; i < *rateLimit; i++ {
 		wg.Add(1)
 		go worker(ctx, metricsChan, sender, wg, *keyFlag, publicKey)

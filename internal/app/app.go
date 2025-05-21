@@ -97,7 +97,6 @@ func MiddlewareWithDecryption(privateKey *rsa.PrivateKey) func(http.Handler) htt
 }
 
 func InitializeApp() (*handler.Handler, string, string) {
-	// Определение флагов
 	addrFlag := flag.String("a", "localhost:8080", "HTTP server address")
 	storeIntervalFlag := flag.Int("i", 300, "Store interval in seconds (0 for synchronous saving)")
 	fileStoragePathFlag := flag.String("f", "/tmp/metrics-db.json", "File storage path")
@@ -107,20 +106,16 @@ func InitializeApp() (*handler.Handler, string, string) {
 	configPath := flag.String("c", "", "Path to JSON config file")
 	configAltPath := flag.String("config", "", "Path to JSON config file (alternative)")
 
-	// Парсинг флагов
 	flag.Parse()
 
-	// Если альтернативный флаг задан, используем его
 	if *configPath == "" && *configAltPath != "" {
 		*configPath = *configAltPath
 	}
 
-	// Чтение переменной окружения для пути к конфигу
 	if envConfig := os.Getenv("CONFIG"); envConfig != "" && *configPath == "" {
 		*configPath = envConfig
 	}
 
-	// Загрузка конфигурации
 	var cfg *config.ServerConfig
 	var err error
 	if *configPath != "" {
@@ -130,7 +125,6 @@ func InitializeApp() (*handler.Handler, string, string) {
 		} else {
 			log.Printf("Loaded configuration from %s", *configPath)
 
-			// Применяем значения из конфигурации, только если флаги имеют значения по умолчанию
 			if flag.Lookup("a").Value.String() == "localhost:8080" {
 				*addrFlag = cfg.Address
 			}
@@ -190,7 +184,6 @@ func InitializeApp() (*handler.Handler, string, string) {
 		}
 	}
 
-	// Обработка databaseDSN
 	databaseDSN := *databaseDSNFlag
 	if envDatabaseDSN := os.Getenv("DATABASE_DSN"); envDatabaseDSN != "" {
 		databaseDSN = envDatabaseDSN
@@ -201,7 +194,6 @@ func InitializeApp() (*handler.Handler, string, string) {
 		key = envKey
 	}
 
-	// Инициализация логгера
 	if err := logger.Initialize("info"); err != nil {
 		panic(err)
 	}
@@ -241,7 +233,6 @@ func InitializeApp() (*handler.Handler, string, string) {
 		log.Println("Using file or in-memory storage")
 	}
 
-	// Создаем обработчик с выбранным хранилищем
 	h := handler.Handler{
 		Storage: storageEngine,
 		DB:      dbConnection,
@@ -253,7 +244,6 @@ func InitializeApp() (*handler.Handler, string, string) {
 func InitializeRouter(h *handler.Handler, key string, privateKeyPath string) *mux.Router {
 	r := mux.NewRouter()
 
-	// Загружаем приватный ключ, если указан путь к файлу
 	var privateKey *rsa.PrivateKey
 	if privateKeyPath != "" {
 		var err error
@@ -265,27 +255,24 @@ func InitializeRouter(h *handler.Handler, key string, privateKeyPath string) *mu
 		}
 	}
 
-	// Проверяем, передан ли key, и определяем middleware
 	var wrapWithHash func(http.Handler) http.Handler
 	if key != "" {
 		wrapWithHash = MiddlewareWithHash(key)
 	} else {
 		wrapWithHash = func(next http.Handler) http.Handler {
-			return next // Если key не задан, просто возвращаем обработчик
+			return next 
 		}
 	}
 
-	// Определяем middleware для расшифровки
 	var wrapWithDecryption func(http.Handler) http.Handler
 	if privateKey != nil {
 		wrapWithDecryption = MiddlewareWithDecryption(privateKey)
 	} else {
 		wrapWithDecryption = func(next http.Handler) http.Handler {
-			return next // Если приватный ключ не задан, просто возвращаем обработчик
+			return next
 		}
 	}
 
-	// Функция для обертки обработчиков
 	wrapHandler := func(handler http.Handler) http.Handler {
 		return middleware.GzipMiddleware(
 			logger.RequestLogger(
@@ -296,19 +283,15 @@ func InitializeRouter(h *handler.Handler, key string, privateKeyPath string) *mu
 		)
 	}
 
-	// Маршруты для обновления метрик и получения их значений
 	r.Handle("/update/{type}/{name}/{value}", wrapHandler(http.HandlerFunc(h.HandleUpdateMetric))).Methods(http.MethodPost)
 	r.Handle("/value/{type}/{name}", wrapHandler(http.HandlerFunc(h.HandleGetValue))).Methods(http.MethodGet)
 	r.Handle("/", wrapHandler(http.HandlerFunc(h.HandleGetAllMetrics))).Methods(http.MethodGet)
 
-	// Маршруты для работы с JSON
 	r.Handle("/update/", wrapHandler(http.HandlerFunc(h.HandleUpdateMetricJSON))).Methods(http.MethodPost)
 	r.Handle("/value/", wrapHandler(http.HandlerFunc(h.HandleGetValueJSON))).Methods(http.MethodPost)
 
-	// Добавляем маршрут для /ping
 	r.Handle("/ping", wrapHandler(http.HandlerFunc(h.HandlePing))).Methods(http.MethodGet)
 
-	// Добавляем маршрут для /updates/
 	r.Handle("/updates/", wrapHandler(http.HandlerFunc(h.HandleUpdatesBatch))).Methods(http.MethodPost)
 
 	return r
@@ -319,12 +302,10 @@ func SyncLogger() {
 }
 
 func isValidSHA256(key string) bool {
-	// SHA-256 хэш всегда длиной 64 символа
 	if len(key) != 64 {
 		return false
 	}
 
-	// Проверяем, что строка состоит из шестнадцатеричных символов
 	_, err := hex.DecodeString(key)
 	return err == nil
 }
