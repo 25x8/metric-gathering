@@ -96,7 +96,7 @@ func main() {
 	r := app.InitializeRouter(h, key, privateKeyPath)
 
 	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 
 	go func() {
 		log.Printf("Server started at %s\n", addr)
