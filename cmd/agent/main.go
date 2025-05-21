@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"flag"
 	"fmt"
 	"log"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/25x8/metric-gathering/internal/agent/collectors"
 	"github.com/25x8/metric-gathering/internal/agent/senders"
+	"github.com/25x8/metric-gathering/internal/config"
 	"github.com/25x8/metric-gathering/internal/utils"
 )
 
@@ -23,7 +25,7 @@ var (
 	buildCommit  = "N/A"
 )
 
-func worker(ctx context.Context, metricsChan <-chan map[string]interface{}, sender *senders.HTTPSender, wg *sync.WaitGroup, keyFlag string) {
+func worker(ctx context.Context, metricsChan <-chan map[string]interface{}, sender *senders.HTTPSender, wg *sync.WaitGroup, keyFlag string, publicKey *rsa.PublicKey) {
 	defer wg.Done()
 	for {
 		select {
@@ -35,12 +37,22 @@ func worker(ctx context.Context, metricsChan <-chan map[string]interface{}, send
 				return
 			}
 
-			err := sender.Send(metrics, keyFlag)
-
+			err := sender.SendBatch(metrics, publicKey)
 			if err != nil {
-				log.Printf("Error sending metrics: %v", err)
+				if err.Error() == "data too large for RSA encryption, use individual sends" {
+					log.Println("Batch too large for encryption, using individual sends")
+				} else {
+					log.Printf("Error sending metrics batch: %v, falling back to individual sends", err)
+				}
+
+				err = sender.Send(metrics, keyFlag, publicKey)
+				if err != nil {
+					log.Printf("Error sending metrics: %v", err)
+				} else {
+					log.Printf("Metrics sent successfully")
+				}
 			} else {
-				log.Printf("Metrics sent successfully")
+				log.Printf("Metrics batch sent successfully")
 			}
 		}
 	}
@@ -58,11 +70,62 @@ func main() {
 	pollInterval := flag.Int("p", 2, "Poll interval in seconds")
 	keyFlag := flag.String("k", "", "Secret key for hashing")
 	rateLimit := flag.Int("l", 2, "Number of outgoing requests")
-	// Добавляем флаг для включения профилирования памяти
 	memProfile := flag.Bool("memprofile", false, "enable memory profiling")
+	cryptoKeyPath := flag.String("crypto-key", "", "Path to public key file for encryption")
+	configPath := flag.String("c", "", "Path to JSON config file")
+
+	// Альтернативный флаг для конфига
+	configAltFlag := flag.String("config", "", "Path to JSON config file (alternative)")
 
 	// Парсинг флагов
 	flag.Parse()
+
+	// Если альтернативный флаг задан, используем его
+	if *configPath == "" && *configAltFlag != "" {
+		*configPath = *configAltFlag
+	}
+
+	// Чтение переменной окружения для пути к конфигу
+	if envConfig := os.Getenv("CONFIG"); envConfig != "" && *configPath == "" {
+		*configPath = envConfig
+	}
+
+	// Загрузка конфигурации
+	var cfg *config.AgentConfig
+	var err error
+	if *configPath != "" {
+		cfg, err = config.LoadAgentConfig(*configPath)
+		if err != nil {
+			log.Printf("Failed to load config from %s: %v. Using defaults and flags.", *configPath, err)
+		} else {
+			log.Printf("Loaded configuration from %s", *configPath)
+
+			// Применяем значения из конфигурации, только если флаги не установлены
+			if flag.Lookup("a").Value.String() == "localhost:8080" {
+				*addr = cfg.Address
+			}
+
+			if flag.Lookup("r").Value.String() == "10" {
+				*reportInterval = cfg.ReportInterval
+			}
+
+			if flag.Lookup("p").Value.String() == "2" {
+				*pollInterval = cfg.PollInterval
+			}
+
+			if flag.Lookup("k").Value.String() == "" {
+				*keyFlag = cfg.Key
+			}
+
+			if flag.Lookup("l").Value.String() == "2" {
+				*rateLimit = cfg.RateLimit
+			}
+
+			if flag.Lookup("crypto-key").Value.String() == "" {
+				*cryptoKeyPath = cfg.CryptoKey
+			}
+		}
+	}
 
 	// Если нужно профилирование, запускаем его
 	var stopProfile func()
@@ -71,7 +134,7 @@ func main() {
 		defer stopProfile()
 	}
 
-	// Чтение переменных окружения
+	// Чтение переменных окружения (приоритет над конфигурационным файлом)
 	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
 		*addr = envAddr
 	}
@@ -98,6 +161,21 @@ func main() {
 		}
 	}
 
+	if envCryptoKey := os.Getenv("CRYPTO_KEY"); envCryptoKey != "" {
+		*cryptoKeyPath = envCryptoKey
+	}
+
+	// Загружаем публичный ключ, если указан путь к файлу
+	var publicKey *rsa.PublicKey
+	if *cryptoKeyPath != "" {
+		var err error
+		publicKey, err = utils.LoadPublicKey(*cryptoKeyPath)
+		if err != nil {
+			log.Fatalf("Failed to load public key: %v", err)
+		}
+		log.Printf("Public key loaded successfully from %s", *cryptoKeyPath)
+	}
+
 	collector := collectors.NewMetricsCollector()
 	sender := senders.NewHTTPSender("http://" + *addr)
 
@@ -113,7 +191,7 @@ func main() {
 	// Worker pool
 	for i := 0; i < *rateLimit; i++ {
 		wg.Add(1)
-		go worker(ctx, metricsChan, sender, wg, *keyFlag)
+		go worker(ctx, metricsChan, sender, wg, *keyFlag, publicKey)
 	}
 
 	go func() {

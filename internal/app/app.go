@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"crypto/rsa"
 	"database/sql"
 	"encoding/hex"
 	"flag"
@@ -11,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/25x8/metric-gathering/internal/config"
 	"github.com/25x8/metric-gathering/internal/handler"
 	"github.com/25x8/metric-gathering/internal/logger"
 	"github.com/25x8/metric-gathering/internal/middleware"
@@ -19,7 +22,6 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// добавляем проверку хеша входящего запроса и генерацию хеша ответа
 func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -33,14 +35,12 @@ func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Проверяем заголовок HashSHA256
 			hashHeader := r.Header.Get("HashSHA256")
 			if hashHeader == "" {
 				http.Error(w, "Missing HashSHA256 header", http.StatusBadRequest)
 				return
 			}
 
-			// Считываем тело запроса
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
 				http.Error(w, "Error reading request body", http.StatusInternalServerError)
@@ -48,17 +48,49 @@ func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
 			}
 			defer r.Body.Close()
 
-			// Вычисляем ожидаемый хеш
 			expectedHash := utils.CalculateHash(body, key)
 			if hashHeader != expectedHash {
 				http.Error(w, "Invalid hash", http.StatusBadRequest)
 				return
 			}
 
-			// Устанавливаем заголовок ответа с хешем
 			w.Header().Set("HashSHA256", expectedHash)
 
-			// Передаём управление следующему обработчику
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// MiddlewareWithDecryption добавляет расшифровку данных с помощью приватного ключа
+func MiddlewareWithDecryption(privateKey *rsa.PrivateKey) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if privateKey == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if r.Header.Get("Content-Encrypted") != "true" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			encryptedBody, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Error reading encrypted request body", http.StatusInternalServerError)
+				return
+			}
+			defer r.Body.Close()
+
+			decryptedData, err := utils.DecryptWithPrivateKey(encryptedBody, privateKey)
+			if err != nil {
+				http.Error(w, "Failed to decrypt request data", http.StatusBadRequest)
+				return
+			}
+
+			r.Body = io.NopCloser(bytes.NewReader(decryptedData))
+			r.ContentLength = int64(len(decryptedData))
+
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -72,11 +104,60 @@ func InitializeApp() (*handler.Handler, string, string) {
 	restoreFlag := flag.Bool("r", true, "Restore metrics from file at startup")
 	databaseDSNFlag := flag.String("d", "", "Database connection string")
 	keyFlag := flag.String("k", "", "Secret key for hashing")
+	configPath := flag.String("c", "", "Path to JSON config file")
+	configAltPath := flag.String("config", "", "Path to JSON config file (alternative)")
 
 	// Парсинг флагов
 	flag.Parse()
 
-	// Чтение переменных окружения с приоритетом
+	// Если альтернативный флаг задан, используем его
+	if *configPath == "" && *configAltPath != "" {
+		*configPath = *configAltPath
+	}
+
+	// Чтение переменной окружения для пути к конфигу
+	if envConfig := os.Getenv("CONFIG"); envConfig != "" && *configPath == "" {
+		*configPath = envConfig
+	}
+
+	// Загрузка конфигурации
+	var cfg *config.ServerConfig
+	var err error
+	if *configPath != "" {
+		cfg, err = config.LoadServerConfig(*configPath)
+		if err != nil {
+			log.Printf("Failed to load config from %s: %v. Using defaults and flags.", *configPath, err)
+		} else {
+			log.Printf("Loaded configuration from %s", *configPath)
+
+			// Применяем значения из конфигурации, только если флаги имеют значения по умолчанию
+			if flag.Lookup("a").Value.String() == "localhost:8080" {
+				*addrFlag = cfg.Address
+			}
+
+			if flag.Lookup("i").Value.String() == "300" {
+				*storeIntervalFlag = cfg.StoreInterval
+			}
+
+			if flag.Lookup("f").Value.String() == "/tmp/metrics-db.json" {
+				*fileStoragePathFlag = cfg.StoreFile
+			}
+
+			if flag.Lookup("r").Value.String() == "true" {
+				*restoreFlag = cfg.Restore
+			}
+
+			if flag.Lookup("d").Value.String() == "" {
+				*databaseDSNFlag = cfg.DatabaseDSN
+			}
+
+			if flag.Lookup("k").Value.String() == "" {
+				*keyFlag = cfg.Key
+			}
+		}
+	}
+
+	// Чтение переменных окружения с приоритетом над конфигурационным файлом
 	addr := *addrFlag
 	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
 		addr = envAddr
@@ -169,8 +250,20 @@ func InitializeApp() (*handler.Handler, string, string) {
 	return &h, addr, key
 }
 
-func InitializeRouter(h *handler.Handler, key string) *mux.Router {
+func InitializeRouter(h *handler.Handler, key string, privateKeyPath string) *mux.Router {
 	r := mux.NewRouter()
+
+	// Загружаем приватный ключ, если указан путь к файлу
+	var privateKey *rsa.PrivateKey
+	if privateKeyPath != "" {
+		var err error
+		privateKey, err = utils.LoadPrivateKey(privateKeyPath)
+		if err != nil {
+			log.Printf("Failed to load private key: %v", err)
+		} else {
+			log.Printf("Private key loaded successfully from %s", privateKeyPath)
+		}
+	}
 
 	// Проверяем, передан ли key, и определяем middleware
 	var wrapWithHash func(http.Handler) http.Handler
@@ -182,11 +275,23 @@ func InitializeRouter(h *handler.Handler, key string) *mux.Router {
 		}
 	}
 
+	// Определяем middleware для расшифровки
+	var wrapWithDecryption func(http.Handler) http.Handler
+	if privateKey != nil {
+		wrapWithDecryption = MiddlewareWithDecryption(privateKey)
+	} else {
+		wrapWithDecryption = func(next http.Handler) http.Handler {
+			return next // Если приватный ключ не задан, просто возвращаем обработчик
+		}
+	}
+
 	// Функция для обертки обработчиков
 	wrapHandler := func(handler http.Handler) http.Handler {
 		return middleware.GzipMiddleware(
 			logger.RequestLogger(
-				wrapWithHash(handler),
+				wrapWithHash(
+					wrapWithDecryption(handler),
+				),
 			),
 		)
 	}

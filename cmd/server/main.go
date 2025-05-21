@@ -15,6 +15,17 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+// Добавляем флаги из app.go
+func init() {
+	// Определяем флаги, которые используются в app.go
+	flag.String("a", "localhost:8080", "HTTP server address")
+	flag.Int("i", 300, "Store interval in seconds (0 for synchronous saving)")
+	flag.String("f", "/tmp/metrics-db.json", "File storage path")
+	flag.Bool("r", true, "Restore metrics from file at startup")
+	flag.String("d", "", "Database connection string")
+	flag.String("k", "", "Secret key for hashing")
+}
+
 var (
 	buildVersion = "N/A"
 	buildDate    = "N/A"
@@ -22,28 +33,44 @@ var (
 )
 
 func main() {
-	// Вывод информации о сборке
 	fmt.Printf("Build version: %s\n", buildVersion)
 	fmt.Printf("Build date: %s\n", buildDate)
 	fmt.Printf("Build commit: %s\n", buildCommit)
 
 	memProfile := flag.Bool("memprofile", false, "enable memory profiling")
+	cryptoKeyPath := flag.String("crypto-key", "", "Path to private key file for decryption")
+	configPath := flag.String("c", "", "Path to JSON config file")
+	configAltPath := flag.String("config", "", "Path to JSON config file (alternative)")
+
+	// Парсинг флагов
 	flag.Parse()
 
-	// Инициализация логгера и обеспечение его синхронизации
+	// Если альтернативный флаг для конфига задан, используем его
+	if *configPath == "" && *configAltPath != "" {
+		*configPath = *configAltPath
+	}
+
+	// Чтение переменной окружения для конфига
+	if envConfig := os.Getenv("CONFIG"); envConfig != "" && *configPath == "" {
+		*configPath = envConfig
+	}
+
+	if envCryptoKey := os.Getenv("CRYPTO_KEY"); envCryptoKey != "" {
+		*cryptoKeyPath = envCryptoKey
+	}
+
 	defer app.SyncLogger()
 
 	h, addr, key := app.InitializeApp()
 
-	// Получаем конкретную реализацию хранилища для проверки его типа при завершении
+	privateKeyPath := *cryptoKeyPath
+
 	storageImpl := h.Storage
 
 	defer h.CloseDB()
 
-	// Если нужно профилирование, создаем файл профиля
 	var profileFile *os.File
 	if *memProfile {
-		// Создаем директорию profiles, если её нет
 		if err := os.MkdirAll("profiles", 0755); err != nil {
 			log.Fatalf("Failed to create profiles directory: %v", err)
 		}
@@ -66,27 +93,22 @@ func main() {
 		}()
 	}
 
-	r := app.InitializeRouter(h, key)
+	r := app.InitializeRouter(h, key, privateKeyPath)
 
-	// Канал для перехвата сигналов завершения
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-	// Запускаем сервер в отдельной горутине
 	go func() {
 		log.Printf("Server started at %s\n", addr)
 		if err := http.ListenAndServe(addr, r); err != nil {
 			log.Printf("Server error: %v\n", err)
-			// Отправляем сигнал завершения в случае ошибки
 			stop <- syscall.SIGTERM
 		}
 	}()
 
-	// Ожидаем сигнал завершения
 	<-stop
 	log.Println("Server shutdown initiated...")
 
-	// Если хранилище в памяти, сохраняем его состояние
 	if memStorage, ok := storageImpl.(*storage.MemStorage); ok {
 		if err := memStorage.Flush(); err != nil {
 			log.Printf("Error during flush: %v", err)
