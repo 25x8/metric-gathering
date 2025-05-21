@@ -3,6 +3,7 @@ package senders
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,9 +32,9 @@ func NewHTTPSender(serverURL string) *HTTPSender {
 	}
 }
 
-func (s *HTTPSender) SendBatch(metrics map[string]interface{}) error {
+func (s *HTTPSender) SendBatch(metrics map[string]interface{}, publicKey *rsa.PublicKey) error {
 	if len(metrics) == 0 {
-		return nil // Don't send empty batches
+		return nil
 	}
 
 	var metricsSlice []Metric
@@ -44,7 +45,7 @@ func (s *HTTPSender) SendBatch(metrics map[string]interface{}) error {
 		switch v := value.(type) {
 		case int64:
 			metric.MType = "counter"
-			metric.Delta = &v // Send as delta
+			metric.Delta = &v 
 		case float64:
 			metric.MType = "gauge"
 			metric.Value = &v
@@ -55,16 +56,14 @@ func (s *HTTPSender) SendBatch(metrics map[string]interface{}) error {
 	}
 
 	if len(metricsSlice) == 0 {
-		return nil // No metrics to send
+		return nil
 	}
 
-	// Serialize metrics to JSON
 	jsonData, err := json.Marshal(metricsSlice)
 	if err != nil {
 		return err
 	}
 
-	// Compress data
 	var compressedBody bytes.Buffer
 	gzipWriter := gzip.NewWriter(&compressedBody)
 	_, err = gzipWriter.Write(jsonData)
@@ -73,13 +72,38 @@ func (s *HTTPSender) SendBatch(metrics map[string]interface{}) error {
 	}
 	gzipWriter.Close()
 
-	// Send request
+	compressedData := compressedBody.Bytes()
+
+	if publicKey != nil && len(compressedData) > 100 {
+		return fmt.Errorf("data too large for RSA encryption, use individual sends")
+	}
+
+	var requestBody []byte
+	var isEncrypted bool
+
+	if publicKey != nil {
+		encryptedData, err := utils.EncryptWithPublicKey(compressedData, publicKey)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt data: %w", err)
+		}
+		requestBody = encryptedData
+		isEncrypted = true
+	} else {
+		requestBody = compressedData
+	}
+
 	url := fmt.Sprintf("%s/updates/", s.ServerURL)
-	req, err := http.NewRequest(http.MethodPost, url, &compressedBody)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(requestBody))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Encoding", "gzip")
+
+	if isEncrypted {
+		req.Header.Set("Content-Encrypted", "true")
+	} else {
+		req.Header.Set("Content-Encoding", "gzip")
+	}
+
 	req.Header.Set("Accept-Encoding", "gzip")
 	req.Header.Set("Content-Type", "application/json")
 
@@ -96,7 +120,7 @@ func (s *HTTPSender) SendBatch(metrics map[string]interface{}) error {
 	return nil
 }
 
-func (s *HTTPSender) Send(metrics map[string]interface{}, key string) error {
+func (s *HTTPSender) Send(metrics map[string]interface{}, key string, publicKey *rsa.PublicKey) error {
 	for keyName, value := range metrics {
 		var metricType string
 		switch value.(type) {
@@ -110,7 +134,9 @@ func (s *HTTPSender) Send(metrics map[string]interface{}, key string) error {
 
 		url := fmt.Sprintf("%s/update/%s/%s/%v", s.ServerURL, metricType, keyName, value)
 
-		// Сжатие тела запроса
+		var requestBody []byte
+		var isEncrypted bool
+
 		var compressedBody bytes.Buffer
 		gzipWriter := gzip.NewWriter(&compressedBody)
 		_, err := gzipWriter.Write([]byte{})
@@ -119,21 +145,38 @@ func (s *HTTPSender) Send(metrics map[string]interface{}, key string) error {
 		}
 		gzipWriter.Close()
 
-		// Вычисляем хеш тела, если задан ключ
-		var hash string
-		if key != "" {
-			hash = utils.CalculateHash(compressedBody.Bytes(), key)
+		compressedData := compressedBody.Bytes()
+
+		if publicKey != nil {
+			encryptedData, err := utils.EncryptWithPublicKey(compressedData, publicKey)
+			if err != nil {
+				return fmt.Errorf("failed to encrypt data: %w", err)
+			}
+			requestBody = encryptedData
+			isEncrypted = true
+		} else {
+			requestBody = compressedData
 		}
 
-		req, err := http.NewRequest(http.MethodPost, url, &compressedBody)
+		var hash string
+		if key != "" {
+			hash = utils.CalculateHash(requestBody, key)
+		}
+
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(requestBody))
 		if err != nil {
 			return err
 		}
-		req.Header.Set("Content-Encoding", "gzip")
+
+		if isEncrypted {
+			req.Header.Set("Content-Encrypted", "true")
+		} else {
+			req.Header.Set("Content-Encoding", "gzip")
+		}
+
 		req.Header.Set("Accept-Encoding", "gzip")
 		req.Header.Set("Content-Type", "text/plain")
 
-		// Добавляем хеш в заголовок, если он рассчитан
 		if hash != "" {
 			req.Header.Set("HashSHA256", hash)
 		}
@@ -144,20 +187,18 @@ func (s *HTTPSender) Send(metrics map[string]interface{}, key string) error {
 		}
 		defer resp.Body.Close()
 
-		// Обработка сжатого ответа, если сервер вернул gzip
 		if resp.Header.Get("Content-Encoding") == "gzip" {
 			gzipReader, err := gzip.NewReader(resp.Body)
 			if err != nil {
 				return err
 			}
 			defer gzipReader.Close()
-			_, err = io.ReadAll(gzipReader) // Читаем тело ответа
+			_, err = io.ReadAll(gzipReader)
 			if err != nil {
 				return err
 			}
 		}
 
-		// Игнорируем тело, так как оно не используется
 	}
 	return nil
 }
