@@ -15,6 +15,17 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+// Добавляем флаги из app.go
+func init() {
+	// Определяем флаги, которые используются в app.go
+	flag.String("a", "localhost:8080", "HTTP server address")
+	flag.Int("i", 300, "Store interval in seconds (0 for synchronous saving)")
+	flag.String("f", "/tmp/metrics-db.json", "File storage path")
+	flag.Bool("r", true, "Restore metrics from file at startup")
+	flag.String("d", "", "Database connection string")
+	flag.String("k", "", "Secret key for hashing")
+}
+
 var (
 	buildVersion = "N/A"
 	buildDate    = "N/A"
@@ -28,7 +39,21 @@ func main() {
 
 	memProfile := flag.Bool("memprofile", false, "enable memory profiling")
 	cryptoKeyPath := flag.String("crypto-key", "", "Path to private key file for decryption")
+	configPath := flag.String("c", "", "Path to JSON config file")
+	configAltPath := flag.String("config", "", "Path to JSON config file (alternative)")
+
+	// Парсинг флагов
 	flag.Parse()
+
+	// Если альтернативный флаг для конфига задан, используем его
+	if *configPath == "" && *configAltPath != "" {
+		*configPath = *configAltPath
+	}
+
+	// Чтение переменной окружения для конфига
+	if envConfig := os.Getenv("CONFIG"); envConfig != "" && *configPath == "" {
+		*configPath = envConfig
+	}
 
 	if envCryptoKey := os.Getenv("CRYPTO_KEY"); envCryptoKey != "" {
 		*cryptoKeyPath = envCryptoKey

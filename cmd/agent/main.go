@@ -15,6 +15,7 @@ import (
 
 	"github.com/25x8/metric-gathering/internal/agent/collectors"
 	"github.com/25x8/metric-gathering/internal/agent/senders"
+	"github.com/25x8/metric-gathering/internal/config"
 	"github.com/25x8/metric-gathering/internal/utils"
 )
 
@@ -63,6 +64,7 @@ func main() {
 	fmt.Printf("Build date: %s\n", buildDate)
 	fmt.Printf("Build commit: %s\n", buildCommit)
 
+	// Определение флагов
 	addr := flag.String("a", "localhost:8080", "HTTP server address")
 	reportInterval := flag.Int("r", 10, "Report interval in seconds")
 	pollInterval := flag.Int("p", 2, "Poll interval in seconds")
@@ -70,9 +72,60 @@ func main() {
 	rateLimit := flag.Int("l", 2, "Number of outgoing requests")
 	memProfile := flag.Bool("memprofile", false, "enable memory profiling")
 	cryptoKeyPath := flag.String("crypto-key", "", "Path to public key file for encryption")
+	configPath := flag.String("c", "", "Path to JSON config file")
+
+	// Альтернативный флаг для конфига
+	configAltFlag := flag.String("config", "", "Path to JSON config file (alternative)")
 
 	// Парсинг флагов
 	flag.Parse()
+
+	// Если альтернативный флаг задан, используем его
+	if *configPath == "" && *configAltFlag != "" {
+		*configPath = *configAltFlag
+	}
+
+	// Чтение переменной окружения для пути к конфигу
+	if envConfig := os.Getenv("CONFIG"); envConfig != "" && *configPath == "" {
+		*configPath = envConfig
+	}
+
+	// Загрузка конфигурации
+	var cfg *config.AgentConfig
+	var err error
+	if *configPath != "" {
+		cfg, err = config.LoadAgentConfig(*configPath)
+		if err != nil {
+			log.Printf("Failed to load config from %s: %v. Using defaults and flags.", *configPath, err)
+		} else {
+			log.Printf("Loaded configuration from %s", *configPath)
+
+			// Применяем значения из конфигурации, только если флаги не установлены
+			if flag.Lookup("a").Value.String() == "localhost:8080" {
+				*addr = cfg.Address
+			}
+
+			if flag.Lookup("r").Value.String() == "10" {
+				*reportInterval = cfg.ReportInterval
+			}
+
+			if flag.Lookup("p").Value.String() == "2" {
+				*pollInterval = cfg.PollInterval
+			}
+
+			if flag.Lookup("k").Value.String() == "" {
+				*keyFlag = cfg.Key
+			}
+
+			if flag.Lookup("l").Value.String() == "2" {
+				*rateLimit = cfg.RateLimit
+			}
+
+			if flag.Lookup("crypto-key").Value.String() == "" {
+				*cryptoKeyPath = cfg.CryptoKey
+			}
+		}
+	}
 
 	// Если нужно профилирование, запускаем его
 	var stopProfile func()
@@ -81,7 +134,7 @@ func main() {
 		defer stopProfile()
 	}
 
-	// Чтение переменных окружения
+	// Чтение переменных окружения (приоритет над конфигурационным файлом)
 	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
 		*addr = envAddr
 	}

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/25x8/metric-gathering/internal/config"
 	"github.com/25x8/metric-gathering/internal/handler"
 	"github.com/25x8/metric-gathering/internal/logger"
 	"github.com/25x8/metric-gathering/internal/middleware"
@@ -103,11 +104,60 @@ func InitializeApp() (*handler.Handler, string, string) {
 	restoreFlag := flag.Bool("r", true, "Restore metrics from file at startup")
 	databaseDSNFlag := flag.String("d", "", "Database connection string")
 	keyFlag := flag.String("k", "", "Secret key for hashing")
+	configPath := flag.String("c", "", "Path to JSON config file")
+	configAltPath := flag.String("config", "", "Path to JSON config file (alternative)")
 
 	// Парсинг флагов
 	flag.Parse()
 
-	// Чтение переменных окружения с приоритетом
+	// Если альтернативный флаг задан, используем его
+	if *configPath == "" && *configAltPath != "" {
+		*configPath = *configAltPath
+	}
+
+	// Чтение переменной окружения для пути к конфигу
+	if envConfig := os.Getenv("CONFIG"); envConfig != "" && *configPath == "" {
+		*configPath = envConfig
+	}
+
+	// Загрузка конфигурации
+	var cfg *config.ServerConfig
+	var err error
+	if *configPath != "" {
+		cfg, err = config.LoadServerConfig(*configPath)
+		if err != nil {
+			log.Printf("Failed to load config from %s: %v. Using defaults and flags.", *configPath, err)
+		} else {
+			log.Printf("Loaded configuration from %s", *configPath)
+
+			// Применяем значения из конфигурации, только если флаги имеют значения по умолчанию
+			if flag.Lookup("a").Value.String() == "localhost:8080" {
+				*addrFlag = cfg.Address
+			}
+
+			if flag.Lookup("i").Value.String() == "300" {
+				*storeIntervalFlag = cfg.StoreInterval
+			}
+
+			if flag.Lookup("f").Value.String() == "/tmp/metrics-db.json" {
+				*fileStoragePathFlag = cfg.StoreFile
+			}
+
+			if flag.Lookup("r").Value.String() == "true" {
+				*restoreFlag = cfg.Restore
+			}
+
+			if flag.Lookup("d").Value.String() == "" {
+				*databaseDSNFlag = cfg.DatabaseDSN
+			}
+
+			if flag.Lookup("k").Value.String() == "" {
+				*keyFlag = cfg.Key
+			}
+		}
+	}
+
+	// Чтение переменных окружения с приоритетом над конфигурационным файлом
 	addr := *addrFlag
 	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
 		addr = envAddr

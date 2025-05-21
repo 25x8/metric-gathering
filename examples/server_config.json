@@ -1,0 +1,9 @@
+{
+  "address": "localhost:8080",
+  "restore": true,
+  "store_interval": 300,
+  "store_file": "/tmp/metrics-db.json",
+  "database_dsn": "postgres://username:password@localhost:5432/metrics",
+  "crypto_key": "/path/to/private_key.pem",
+  "key": "your-secret-key"
+} 
