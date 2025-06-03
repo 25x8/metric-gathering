@@ -96,7 +96,7 @@ func MiddlewareWithDecryption(privateKey *rsa.PrivateKey) func(http.Handler) htt
 	}
 }
 
-func InitializeApp() (*handler.Handler, string, string, string) {
+func InitializeApp() (*handler.Handler, string, string, string, string, bool) {
 	addrFlag := flag.String("a", "localhost:8080", "HTTP server address")
 	storeIntervalFlag := flag.Int("i", 300, "Store interval in seconds (0 for synchronous saving)")
 	fileStoragePathFlag := flag.String("f", "/tmp/metrics-db.json", "File storage path")
@@ -104,6 +104,8 @@ func InitializeApp() (*handler.Handler, string, string, string) {
 	databaseDSNFlag := flag.String("d", "", "Database connection string")
 	keyFlag := flag.String("k", "", "Secret key for hashing")
 	trustedSubnetFlag := flag.String("t", "", "Trusted subnet in CIDR format")
+	grpcAddrFlag := flag.String("g", "localhost:3200", "gRPC server address")
+	useGRPCFlag := flag.Bool("grpc", false, "Use gRPC instead of HTTP")
 	configPath := flag.String("c", "", "Path to JSON config file")
 	configAltPath := flag.String("config", "", "Path to JSON config file (alternative)")
 
@@ -152,6 +154,14 @@ func InitializeApp() (*handler.Handler, string, string, string) {
 
 			if flag.Lookup("t").Value.String() == "" {
 				*trustedSubnetFlag = cfg.TrustedSubnet
+			}
+
+			if flag.Lookup("g").Value.String() == "localhost:3200" {
+				*grpcAddrFlag = cfg.GRPCAddress
+			}
+
+			if flag.Lookup("grpc").Value.String() == "false" {
+				*useGRPCFlag = cfg.UseGRPC
 			}
 		}
 	}
@@ -204,6 +214,20 @@ func InitializeApp() (*handler.Handler, string, string, string) {
 		trustedSubnet = envTrustedSubnet
 	}
 
+	grpcAddr := *grpcAddrFlag
+	if envGRPCAddr := os.Getenv("GRPC_ADDRESS"); envGRPCAddr != "" {
+		grpcAddr = envGRPCAddr
+	}
+
+	useGRPC := *useGRPCFlag
+	if envUseGRPC := os.Getenv("USE_GRPC"); envUseGRPC != "" {
+		var err error
+		useGRPC, err = strconv.ParseBool(envUseGRPC)
+		if err != nil {
+			log.Fatalf("Invalid USE_GRPC value: %v", err)
+		}
+	}
+
 	if err := logger.Initialize("info"); err != nil {
 		panic(err)
 	}
@@ -248,7 +272,7 @@ func InitializeApp() (*handler.Handler, string, string, string) {
 		DB:      dbConnection,
 	}
 
-	return &h, addr, key, trustedSubnet
+	return &h, addr, key, trustedSubnet, grpcAddr, useGRPC
 }
 
 func InitializeRouter(h *handler.Handler, key string, privateKeyPath string, trustedSubnet string) *mux.Router {

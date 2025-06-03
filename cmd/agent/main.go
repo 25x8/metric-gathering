@@ -19,12 +19,12 @@ import (
 	"github.com/25x8/metric-gathering/internal/utils"
 )
 
-func worker(ctx context.Context, metricsChan <-chan map[string]interface{}, sender *senders.HTTPSender, wg *sync.WaitGroup, keyFlag string, publicKey *rsa.PublicKey) {
+func workerHTTP(ctx context.Context, metricsChan <-chan map[string]interface{}, sender senders.HTTPMetricsSender, wg *sync.WaitGroup, keyFlag string, publicKey *rsa.PublicKey) {
 	defer wg.Done()
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Worker stopping...")
+			log.Println("HTTP Worker stopping...")
 			return
 		case metrics, ok := <-metricsChan:
 			if !ok {
@@ -52,6 +52,28 @@ func worker(ctx context.Context, metricsChan <-chan map[string]interface{}, send
 	}
 }
 
+func workerGRPC(ctx context.Context, metricsChan <-chan map[string]interface{}, sender senders.MetricsSender, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("gRPC Worker stopping...")
+			return
+		case metrics, ok := <-metricsChan:
+			if !ok {
+				return
+			}
+
+			err := sender.SendBatch(metrics)
+			if err != nil {
+				log.Printf("Error sending metrics batch via gRPC: %v", err)
+			} else {
+				log.Printf("Metrics batch sent successfully via gRPC")
+			}
+		}
+	}
+}
+
 func main() {
 	buildinfo.PrintBuildInfo()
 
@@ -63,6 +85,8 @@ func main() {
 	memProfile := flag.Bool("memprofile", false, "enable memory profiling")
 	cryptoKeyPath := flag.String("crypto-key", "", "Path to public key file for encryption")
 	configPath := flag.String("c", "", "Path to JSON config file")
+	grpcAddr := flag.String("g", "localhost:3200", "gRPC server address")
+	useGRPC := flag.Bool("grpc", false, "Use gRPC instead of HTTP")
 
 	configAltFlag := flag.String("config", "", "Path to JSON config file (alternative)")
 
@@ -108,6 +132,14 @@ func main() {
 			if flag.Lookup("crypto-key").Value.String() == "" {
 				*cryptoKeyPath = cfg.CryptoKey
 			}
+
+			if flag.Lookup("g").Value.String() == "localhost:3200" {
+				*grpcAddr = cfg.GRPCAddress
+			}
+
+			if flag.Lookup("grpc").Value.String() == "false" {
+				*useGRPC = cfg.UseGRPC
+			}
 		}
 	}
 
@@ -147,8 +179,18 @@ func main() {
 		*cryptoKeyPath = envCryptoKey
 	}
 
+	if envGRPCAddr := os.Getenv("GRPC_ADDRESS"); envGRPCAddr != "" {
+		*grpcAddr = envGRPCAddr
+	}
+
+	if envUseGRPC := os.Getenv("USE_GRPC"); envUseGRPC != "" {
+		if value, err := strconv.ParseBool(envUseGRPC); err == nil {
+			*useGRPC = value
+		}
+	}
+
 	var publicKey *rsa.PublicKey
-	if *cryptoKeyPath != "" {
+	if *cryptoKeyPath != "" && !*useGRPC {
 		var err error
 		publicKey, err = utils.LoadPublicKey(*cryptoKeyPath)
 		if err != nil {
@@ -158,20 +200,36 @@ func main() {
 	}
 
 	collector := collectors.NewMetricsCollector()
-	sender := senders.NewHTTPSender("http://" + *addr)
-
-	tickerPoll := time.NewTicker(time.Duration(*pollInterval) * time.Second)
-	tickerReport := time.NewTicker(time.Duration(*reportInterval) * time.Second)
 
 	metricsChan := make(chan map[string]interface{}, 100)
 	wg := &sync.WaitGroup{}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	for i := 0; i < *rateLimit; i++ {
-		wg.Add(1)
-		go worker(ctx, metricsChan, sender, wg, *keyFlag, publicKey)
+	if *useGRPC {
+		log.Printf("Using gRPC to send metrics to %s", *grpcAddr)
+		grpcSender, err := senders.NewGRPCSender(*grpcAddr)
+		if err != nil {
+			log.Fatalf("Failed to create gRPC sender: %v", err)
+		}
+		defer grpcSender.Close()
+
+		for i := 0; i < *rateLimit; i++ {
+			wg.Add(1)
+			go workerGRPC(ctx, metricsChan, grpcSender, wg)
+		}
+	} else {
+		log.Printf("Using HTTP to send metrics to %s", *addr)
+		httpSender := senders.NewHTTPSender("http://" + *addr)
+
+		for i := 0; i < *rateLimit; i++ {
+			wg.Add(1)
+			go workerHTTP(ctx, metricsChan, httpSender, wg, *keyFlag, publicKey)
+		}
 	}
+
+	tickerPoll := time.NewTicker(time.Duration(*pollInterval) * time.Second)
+	tickerReport := time.NewTicker(time.Duration(*reportInterval) * time.Second)
 
 	go func() {
 		for {
@@ -190,7 +248,7 @@ func main() {
 		for {
 			select {
 			case <-ctx.Done():
-				log.Println("Stopping metrics collection...")
+				log.Println("Stopping system metrics collection...")
 				return
 			case <-tickerPoll.C:
 				collector.CollectSystemMetrics()

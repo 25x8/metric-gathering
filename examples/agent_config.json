@@ -4,5 +4,7 @@
   "poll_interval": 2,
   "crypto_key": "/path/to/public_key.pem",
   "key": "your-secret-key",
-  "rate_limit": 2
+  "rate_limit": 2,
+  "grpc_address": "localhost:3200",
+  "use_grpc": false
 } 
