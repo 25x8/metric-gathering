@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/25x8/metric-gathering/internal/crypto"
 	"github.com/25x8/metric-gathering/internal/utils"
 )
 
@@ -83,7 +84,7 @@ func (s *HTTPSender) SendBatch(metrics map[string]interface{}, publicKey *rsa.Pu
 	var isEncrypted bool
 
 	if publicKey != nil {
-		encryptedData, err := utils.EncryptWithPublicKey(compressedData, publicKey)
+		encryptedData, err := crypto.EncryptWithPublicKey(compressedData, publicKey)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt data: %w", err)
 		}
@@ -155,7 +156,7 @@ func (s *HTTPSender) Send(metrics map[string]interface{}, key string, publicKey 
 		compressedData := compressedBody.Bytes()
 
 		if publicKey != nil {
-			encryptedData, err := utils.EncryptWithPublicKey(compressedData, publicKey)
+			encryptedData, err := crypto.EncryptWithPublicKey(compressedData, publicKey)
 			if err != nil {
 				return fmt.Errorf("failed to encrypt data: %w", err)
 			}
@@ -167,7 +168,7 @@ func (s *HTTPSender) Send(metrics map[string]interface{}, key string, publicKey 
 
 		var hash string
 		if key != "" {
-			hash = utils.CalculateHash(requestBody, key)
+			hash = crypto.CalculateHash(requestBody, key)
 		}
 
 		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(requestBody))

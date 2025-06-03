@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"crypto/rsa"
 	"database/sql"
 	"encoding/hex"
@@ -11,15 +10,17 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/25x8/metric-gathering/internal/config"
+	"github.com/25x8/metric-gathering/internal/crypto"
 	"github.com/25x8/metric-gathering/internal/handler"
 	"github.com/25x8/metric-gathering/internal/logger"
 	"github.com/25x8/metric-gathering/internal/middleware"
 	"github.com/25x8/metric-gathering/internal/storage"
-	"github.com/25x8/metric-gathering/internal/utils"
 	"github.com/gorilla/mux"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
@@ -48,7 +49,7 @@ func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
 			}
 			defer r.Body.Close()
 
-			expectedHash := utils.CalculateHash(body, key)
+			expectedHash := crypto.CalculateHash(body, key)
 			if hashHeader != expectedHash {
 				http.Error(w, "Invalid hash", http.StatusBadRequest)
 				return
@@ -61,7 +62,6 @@ func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
 	}
 }
 
-// MiddlewareWithDecryption добавляет расшифровку данных с помощью приватного ключа
 func MiddlewareWithDecryption(privateKey *rsa.PrivateKey) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -70,26 +70,21 @@ func MiddlewareWithDecryption(privateKey *rsa.PrivateKey) func(http.Handler) htt
 				return
 			}
 
-			if r.Header.Get("Content-Encrypted") != "true" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			encryptedBody, err := io.ReadAll(r.Body)
+			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				http.Error(w, "Error reading encrypted request body", http.StatusInternalServerError)
+				http.Error(w, "Error reading request body", http.StatusInternalServerError)
 				return
 			}
 			defer r.Body.Close()
 
-			decryptedData, err := utils.DecryptWithPrivateKey(encryptedBody, privateKey)
+			decryptedData, err := crypto.DecryptWithPrivateKey(body, privateKey)
 			if err != nil {
-				http.Error(w, "Failed to decrypt request data", http.StatusBadRequest)
+				log.Printf("Failed to decrypt data: %v", err)
+				next.ServeHTTP(w, r)
 				return
 			}
 
-			r.Body = io.NopCloser(bytes.NewReader(decryptedData))
-			r.ContentLength = int64(len(decryptedData))
+			r.Body = io.NopCloser(strings.NewReader(string(decryptedData)))
 
 			next.ServeHTTP(w, r)
 		})
@@ -281,7 +276,7 @@ func InitializeRouter(h *handler.Handler, key string, privateKeyPath string, tru
 	var privateKey *rsa.PrivateKey
 	if privateKeyPath != "" {
 		var err error
-		privateKey, err = utils.LoadPrivateKey(privateKeyPath)
+		privateKey, err = crypto.LoadPrivateKey(privateKeyPath)
 		if err != nil {
 			log.Printf("Failed to load private key: %v", err)
 		} else {

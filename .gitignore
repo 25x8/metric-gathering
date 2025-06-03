@@ -25,9 +25,11 @@ vendor/
 .vscode
 
 
-server
-server_profiled
+./server
+./server_profiled
 *.sh
 
-agent
-agent_profiled
+./agent
+./agent_profiled
+
+/bin

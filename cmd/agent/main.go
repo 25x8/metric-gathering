@@ -16,22 +16,39 @@ import (
 	"github.com/25x8/metric-gathering/internal/agent/senders"
 	"github.com/25x8/metric-gathering/internal/buildinfo"
 	"github.com/25x8/metric-gathering/internal/config"
+	"github.com/25x8/metric-gathering/internal/crypto"
 	"github.com/25x8/metric-gathering/internal/utils"
 )
 
-func workerHTTP(ctx context.Context, metricsChan <-chan map[string]interface{}, sender senders.HTTPMetricsSender, wg *sync.WaitGroup, keyFlag string, publicKey *rsa.PublicKey) {
-	defer wg.Done()
+// HTTPWorkerConfig содержит конфигурацию для HTTP worker'а
+type HTTPWorkerConfig struct {
+	MetricsChan <-chan map[string]interface{}
+	Sender      senders.HTTPMetricsSender
+	WG          *sync.WaitGroup
+	Key         string
+	PublicKey   *rsa.PublicKey
+}
+
+// GRPCWorkerConfig содержит конфигурацию для gRPC worker'а
+type GRPCWorkerConfig struct {
+	MetricsChan <-chan map[string]interface{}
+	Sender      senders.MetricsSender
+	WG          *sync.WaitGroup
+}
+
+func workerHTTP(ctx context.Context, config HTTPWorkerConfig) {
+	defer config.WG.Done()
 	for {
 		select {
 		case <-ctx.Done():
 			log.Println("HTTP Worker stopping...")
 			return
-		case metrics, ok := <-metricsChan:
+		case metrics, ok := <-config.MetricsChan:
 			if !ok {
 				return
 			}
 
-			err := sender.SendBatch(metrics, publicKey)
+			err := config.Sender.SendBatch(metrics, config.PublicKey)
 			if err != nil {
 				if err.Error() == "data too large for RSA encryption, use individual sends" {
 					log.Println("Batch too large for encryption, using individual sends")
@@ -39,7 +56,7 @@ func workerHTTP(ctx context.Context, metricsChan <-chan map[string]interface{}, 
 					log.Printf("Error sending metrics batch: %v, falling back to individual sends", err)
 				}
 
-				err = sender.Send(metrics, keyFlag, publicKey)
+				err = config.Sender.Send(metrics, config.Key, config.PublicKey)
 				if err != nil {
 					log.Printf("Error sending metrics: %v", err)
 				} else {
@@ -52,19 +69,19 @@ func workerHTTP(ctx context.Context, metricsChan <-chan map[string]interface{}, 
 	}
 }
 
-func workerGRPC(ctx context.Context, metricsChan <-chan map[string]interface{}, sender senders.MetricsSender, wg *sync.WaitGroup) {
-	defer wg.Done()
+func workerGRPC(ctx context.Context, config GRPCWorkerConfig) {
+	defer config.WG.Done()
 	for {
 		select {
 		case <-ctx.Done():
 			log.Println("gRPC Worker stopping...")
 			return
-		case metrics, ok := <-metricsChan:
+		case metrics, ok := <-config.MetricsChan:
 			if !ok {
 				return
 			}
 
-			err := sender.SendBatch(metrics)
+			err := config.Sender.SendBatch(metrics)
 			if err != nil {
 				log.Printf("Error sending metrics batch via gRPC: %v", err)
 			} else {
@@ -192,7 +209,7 @@ func main() {
 	var publicKey *rsa.PublicKey
 	if *cryptoKeyPath != "" && !*useGRPC {
 		var err error
-		publicKey, err = utils.LoadPublicKey(*cryptoKeyPath)
+		publicKey, err = crypto.LoadPublicKey(*cryptoKeyPath)
 		if err != nil {
 			log.Fatalf("Failed to load public key: %v", err)
 		}
@@ -216,7 +233,11 @@ func main() {
 
 		for i := 0; i < *rateLimit; i++ {
 			wg.Add(1)
-			go workerGRPC(ctx, metricsChan, grpcSender, wg)
+			go workerGRPC(ctx, GRPCWorkerConfig{
+				MetricsChan: metricsChan,
+				Sender:      grpcSender,
+				WG:          wg,
+			})
 		}
 	} else {
 		log.Printf("Using HTTP to send metrics to %s", *addr)
@@ -224,7 +245,13 @@ func main() {
 
 		for i := 0; i < *rateLimit; i++ {
 			wg.Add(1)
-			go workerHTTP(ctx, metricsChan, httpSender, wg, *keyFlag, publicKey)
+			go workerHTTP(ctx, HTTPWorkerConfig{
+				MetricsChan: metricsChan,
+				Sender:      httpSender,
+				WG:          wg,
+				Key:         *keyFlag,
+				PublicKey:   publicKey,
+			})
 		}
 	}
 
