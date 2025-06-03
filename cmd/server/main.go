@@ -11,6 +11,7 @@ import (
 
 	"github.com/25x8/metric-gathering/internal/app"
 	"github.com/25x8/metric-gathering/internal/buildinfo"
+	"github.com/25x8/metric-gathering/internal/grpc/server"
 	"github.com/25x8/metric-gathering/internal/storage"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -22,6 +23,9 @@ func init() {
 	flag.Bool("r", true, "Restore metrics from file at startup")
 	flag.String("d", "", "Database connection string")
 	flag.String("k", "", "Secret key for hashing")
+	flag.String("t", "", "Trusted subnet in CIDR format")
+	flag.String("g", "localhost:3200", "gRPC server address")
+	flag.Bool("grpc", false, "Use gRPC instead of HTTP")
 }
 
 func main() {
@@ -48,7 +52,7 @@ func main() {
 
 	defer app.SyncLogger()
 
-	h, addr, key := app.InitializeApp()
+	h, addr, key, trustedSubnet, grpcAddr, useGRPC := app.InitializeApp()
 
 	privateKeyPath := *cryptoKeyPath
 
@@ -80,21 +84,42 @@ func main() {
 		}()
 	}
 
-	r := app.InitializeRouter(h, key, privateKeyPath)
-
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 
-	go func() {
-		log.Printf("Server started at %s\n", addr)
-		if err := http.ListenAndServe(addr, r); err != nil {
-			log.Printf("Server error: %v\n", err)
-			stop <- syscall.SIGTERM
+	if useGRPC {
+		// Запускаем gRPC сервер
+		grpcServer, err := server.NewGRPCServer(grpcAddr, storageImpl)
+		if err != nil {
+			log.Fatalf("Failed to create gRPC server: %v", err)
 		}
-	}()
 
-	<-stop
-	log.Println("Server shutdown initiated...")
+		go func() {
+			log.Printf("gRPC server started at %s\n", grpcAddr)
+			if err := grpcServer.Start(); err != nil {
+				log.Printf("gRPC server error: %v\n", err)
+				stop <- syscall.SIGTERM
+			}
+		}()
+
+		<-stop
+		log.Println("gRPC server shutdown initiated...")
+		grpcServer.Stop()
+	} else {
+		// Запускаем HTTP сервер
+		r := app.InitializeRouter(h, key, privateKeyPath, trustedSubnet)
+
+		go func() {
+			log.Printf("HTTP server started at %s\n", addr)
+			if err := http.ListenAndServe(addr, r); err != nil {
+				log.Printf("HTTP server error: %v\n", err)
+				stop <- syscall.SIGTERM
+			}
+		}()
+
+		<-stop
+		log.Println("HTTP server shutdown initiated...")
+	}
 
 	if memStorage, ok := storageImpl.(*storage.MemStorage); ok {
 		if err := memStorage.Flush(); err != nil {

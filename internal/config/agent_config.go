@@ -12,6 +12,8 @@ type AgentConfig struct {
 	CryptoKey      string `json:"crypto_key"`
 	Key            string `json:"key"`
 	RateLimit      int    `json:"rate_limit"`
+	GRPCAddress    string `json:"grpc_address"`
+	UseGRPC        bool   `json:"use_grpc"`
 }
 
 func LoadAgentConfig(filePath string) (*AgentConfig, error) {
@@ -20,6 +22,8 @@ func LoadAgentConfig(filePath string) (*AgentConfig, error) {
 		ReportInterval: 10,
 		PollInterval:   2,
 		RateLimit:      2,
+		GRPCAddress:    "localhost:3200",
+		UseGRPC:        false,
 	}
 
 	if filePath != "" {

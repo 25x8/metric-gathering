@@ -14,6 +14,9 @@ type ServerConfig struct {
 	DatabaseDSN   string `json:"database_dsn"`
 	CryptoKey     string `json:"crypto_key"`
 	Key           string `json:"key"`
+	TrustedSubnet string `json:"trusted_subnet"`
+	GRPCAddress   string `json:"grpc_address"`
+	UseGRPC       bool   `json:"use_grpc"`
 }
 
 func LoadServerConfig(filePath string) (*ServerConfig, error) {
@@ -22,6 +25,8 @@ func LoadServerConfig(filePath string) (*ServerConfig, error) {
 		Restore:       true,
 		StoreInterval: 300,
 		StoreFile:     "/tmp/metrics-db.json",
+		GRPCAddress:   "localhost:3200",
+		UseGRPC:       false,
 	}
 
 	if filePath != "" {

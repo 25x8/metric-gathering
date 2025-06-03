@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package metrics;
+
+option go_package = "github.com/25x8/metric-gathering/internal/grpc/pb";
+
+// Metric представляет метрику
+message Metric {
+    string id = 1;
+    string type = 2;
+    optional int64 delta = 3;
+    optional double value = 4;
+}
+
+// UpdateMetricRequest для обновления одной метрики
+message UpdateMetricRequest {
+    Metric metric = 1;
+}
+
+// UpdateMetricResponse ответ на обновление метрики
+message UpdateMetricResponse {
+    Metric metric = 1;
+}
+
+// UpdateMetricsRequest для пакетного обновления метрик
+message UpdateMetricsRequest {
+    repeated Metric metrics = 1;
+}
+
+// UpdateMetricsResponse ответ на пакетное обновление
+message UpdateMetricsResponse {
+    bool success = 1;
+}
+
+// GetMetricRequest для получения метрики
+message GetMetricRequest {
+    string id = 1;
+    string type = 2;
+}
+
+// GetMetricResponse ответ с метрикой
+message GetMetricResponse {
+    Metric metric = 1;
+}
+
+// GetAllMetricsRequest для получения всех метрик
+message GetAllMetricsRequest {}
+
+// GetAllMetricsResponse ответ со всеми метриками
+message GetAllMetricsResponse {
+    repeated Metric metrics = 1;
+}
+
+// PingRequest для проверки подключения
+message PingRequest {}
+
+// PingResponse ответ на ping
+message PingResponse {
+    bool healthy = 1;
+}
+
+// MetricsService gRPC сервис для метрик
+service MetricsService {
+    // UpdateMetric обновляет одну метрику
+    rpc UpdateMetric(UpdateMetricRequest) returns (UpdateMetricResponse);
+    
+    // UpdateMetrics пакетное обновление метрик
+    rpc UpdateMetrics(UpdateMetricsRequest) returns (UpdateMetricsResponse);
+    
+    // GetMetric получает значение метрики
+    rpc GetMetric(GetMetricRequest) returns (GetMetricResponse);
+    
+    // GetAllMetrics получает все метрики
+    rpc GetAllMetrics(GetAllMetricsRequest) returns (GetAllMetricsResponse);
+    
+    // Ping проверяет доступность сервера
+    rpc Ping(PingRequest) returns (PingResponse);
+} 

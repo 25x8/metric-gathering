@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"crypto/rsa"
 	"database/sql"
 	"encoding/hex"
@@ -11,15 +10,17 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/25x8/metric-gathering/internal/config"
+	"github.com/25x8/metric-gathering/internal/crypto"
 	"github.com/25x8/metric-gathering/internal/handler"
 	"github.com/25x8/metric-gathering/internal/logger"
 	"github.com/25x8/metric-gathering/internal/middleware"
 	"github.com/25x8/metric-gathering/internal/storage"
-	"github.com/25x8/metric-gathering/internal/utils"
 	"github.com/gorilla/mux"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
@@ -48,7 +49,7 @@ func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
 			}
 			defer r.Body.Close()
 
-			expectedHash := utils.CalculateHash(body, key)
+			expectedHash := crypto.CalculateHash(body, key)
 			if hashHeader != expectedHash {
 				http.Error(w, "Invalid hash", http.StatusBadRequest)
 				return
@@ -61,7 +62,6 @@ func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
 	}
 }
 
-// MiddlewareWithDecryption добавляет расшифровку данных с помощью приватного ключа
 func MiddlewareWithDecryption(privateKey *rsa.PrivateKey) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -70,39 +70,37 @@ func MiddlewareWithDecryption(privateKey *rsa.PrivateKey) func(http.Handler) htt
 				return
 			}
 
-			if r.Header.Get("Content-Encrypted") != "true" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			encryptedBody, err := io.ReadAll(r.Body)
+			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				http.Error(w, "Error reading encrypted request body", http.StatusInternalServerError)
+				http.Error(w, "Error reading request body", http.StatusInternalServerError)
 				return
 			}
 			defer r.Body.Close()
 
-			decryptedData, err := utils.DecryptWithPrivateKey(encryptedBody, privateKey)
+			decryptedData, err := crypto.DecryptWithPrivateKey(body, privateKey)
 			if err != nil {
-				http.Error(w, "Failed to decrypt request data", http.StatusBadRequest)
+				log.Printf("Failed to decrypt data: %v", err)
+				next.ServeHTTP(w, r)
 				return
 			}
 
-			r.Body = io.NopCloser(bytes.NewReader(decryptedData))
-			r.ContentLength = int64(len(decryptedData))
+			r.Body = io.NopCloser(strings.NewReader(string(decryptedData)))
 
 			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-func InitializeApp() (*handler.Handler, string, string) {
+func InitializeApp() (*handler.Handler, string, string, string, string, bool) {
 	addrFlag := flag.String("a", "localhost:8080", "HTTP server address")
 	storeIntervalFlag := flag.Int("i", 300, "Store interval in seconds (0 for synchronous saving)")
 	fileStoragePathFlag := flag.String("f", "/tmp/metrics-db.json", "File storage path")
 	restoreFlag := flag.Bool("r", true, "Restore metrics from file at startup")
 	databaseDSNFlag := flag.String("d", "", "Database connection string")
 	keyFlag := flag.String("k", "", "Secret key for hashing")
+	trustedSubnetFlag := flag.String("t", "", "Trusted subnet in CIDR format")
+	grpcAddrFlag := flag.String("g", "localhost:3200", "gRPC server address")
+	useGRPCFlag := flag.Bool("grpc", false, "Use gRPC instead of HTTP")
 	configPath := flag.String("c", "", "Path to JSON config file")
 	configAltPath := flag.String("config", "", "Path to JSON config file (alternative)")
 
@@ -147,6 +145,18 @@ func InitializeApp() (*handler.Handler, string, string) {
 
 			if flag.Lookup("k").Value.String() == "" {
 				*keyFlag = cfg.Key
+			}
+
+			if flag.Lookup("t").Value.String() == "" {
+				*trustedSubnetFlag = cfg.TrustedSubnet
+			}
+
+			if flag.Lookup("g").Value.String() == "localhost:3200" {
+				*grpcAddrFlag = cfg.GRPCAddress
+			}
+
+			if flag.Lookup("grpc").Value.String() == "false" {
+				*useGRPCFlag = cfg.UseGRPC
 			}
 		}
 	}
@@ -194,6 +204,25 @@ func InitializeApp() (*handler.Handler, string, string) {
 		key = envKey
 	}
 
+	trustedSubnet := *trustedSubnetFlag
+	if envTrustedSubnet := os.Getenv("TRUSTED_SUBNET"); envTrustedSubnet != "" {
+		trustedSubnet = envTrustedSubnet
+	}
+
+	grpcAddr := *grpcAddrFlag
+	if envGRPCAddr := os.Getenv("GRPC_ADDRESS"); envGRPCAddr != "" {
+		grpcAddr = envGRPCAddr
+	}
+
+	useGRPC := *useGRPCFlag
+	if envUseGRPC := os.Getenv("USE_GRPC"); envUseGRPC != "" {
+		var err error
+		useGRPC, err = strconv.ParseBool(envUseGRPC)
+		if err != nil {
+			log.Fatalf("Invalid USE_GRPC value: %v", err)
+		}
+	}
+
 	if err := logger.Initialize("info"); err != nil {
 		panic(err)
 	}
@@ -238,16 +267,16 @@ func InitializeApp() (*handler.Handler, string, string) {
 		DB:      dbConnection,
 	}
 
-	return &h, addr, key
+	return &h, addr, key, trustedSubnet, grpcAddr, useGRPC
 }
 
-func InitializeRouter(h *handler.Handler, key string, privateKeyPath string) *mux.Router {
+func InitializeRouter(h *handler.Handler, key string, privateKeyPath string, trustedSubnet string) *mux.Router {
 	r := mux.NewRouter()
 
 	var privateKey *rsa.PrivateKey
 	if privateKeyPath != "" {
 		var err error
-		privateKey, err = utils.LoadPrivateKey(privateKeyPath)
+		privateKey, err = crypto.LoadPrivateKey(privateKeyPath)
 		if err != nil {
 			log.Printf("Failed to load private key: %v", err)
 		} else {
@@ -260,7 +289,7 @@ func InitializeRouter(h *handler.Handler, key string, privateKeyPath string) *mu
 		wrapWithHash = MiddlewareWithHash(key)
 	} else {
 		wrapWithHash = func(next http.Handler) http.Handler {
-			return next 
+			return next
 		}
 	}
 
@@ -273,11 +302,15 @@ func InitializeRouter(h *handler.Handler, key string, privateKeyPath string) *mu
 		}
 	}
 
+	wrapWithTrustedSubnet := middleware.TrustedSubnetMiddleware(trustedSubnet)
+
 	wrapHandler := func(handler http.Handler) http.Handler {
 		return middleware.GzipMiddleware(
 			logger.RequestLogger(
-				wrapWithHash(
-					wrapWithDecryption(handler),
+				wrapWithTrustedSubnet(
+					wrapWithHash(
+						wrapWithDecryption(handler),
+					),
 				),
 			),
 		)

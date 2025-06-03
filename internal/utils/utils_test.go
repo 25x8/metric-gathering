@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/25x8/metric-gathering/internal/crypto"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -44,7 +45,7 @@ func TestCalculateHashExtended(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CalculateHash(tt.data, tt.key)
+			got := crypto.CalculateHash(tt.data, tt.key)
 			if got != tt.expected {
 				t.Errorf("CalculateHash() = %v, want %v", got, tt.expected)
 			}
@@ -87,7 +88,7 @@ func TestCalculateHashBasic(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := CalculateHash(tc.data, tc.key)
+			result := crypto.CalculateHash(tc.data, tc.key)
 			assert.Equal(t, tc.expected, result)
 
 			// Проверим результат вручную для подтверждения
