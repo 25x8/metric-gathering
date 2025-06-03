@@ -96,13 +96,14 @@ func MiddlewareWithDecryption(privateKey *rsa.PrivateKey) func(http.Handler) htt
 	}
 }
 
-func InitializeApp() (*handler.Handler, string, string) {
+func InitializeApp() (*handler.Handler, string, string, string) {
 	addrFlag := flag.String("a", "localhost:8080", "HTTP server address")
 	storeIntervalFlag := flag.Int("i", 300, "Store interval in seconds (0 for synchronous saving)")
 	fileStoragePathFlag := flag.String("f", "/tmp/metrics-db.json", "File storage path")
 	restoreFlag := flag.Bool("r", true, "Restore metrics from file at startup")
 	databaseDSNFlag := flag.String("d", "", "Database connection string")
 	keyFlag := flag.String("k", "", "Secret key for hashing")
+	trustedSubnetFlag := flag.String("t", "", "Trusted subnet in CIDR format")
 	configPath := flag.String("c", "", "Path to JSON config file")
 	configAltPath := flag.String("config", "", "Path to JSON config file (alternative)")
 
@@ -147,6 +148,10 @@ func InitializeApp() (*handler.Handler, string, string) {
 
 			if flag.Lookup("k").Value.String() == "" {
 				*keyFlag = cfg.Key
+			}
+
+			if flag.Lookup("t").Value.String() == "" {
+				*trustedSubnetFlag = cfg.TrustedSubnet
 			}
 		}
 	}
@@ -194,6 +199,11 @@ func InitializeApp() (*handler.Handler, string, string) {
 		key = envKey
 	}
 
+	trustedSubnet := *trustedSubnetFlag
+	if envTrustedSubnet := os.Getenv("TRUSTED_SUBNET"); envTrustedSubnet != "" {
+		trustedSubnet = envTrustedSubnet
+	}
+
 	if err := logger.Initialize("info"); err != nil {
 		panic(err)
 	}
@@ -238,10 +248,10 @@ func InitializeApp() (*handler.Handler, string, string) {
 		DB:      dbConnection,
 	}
 
-	return &h, addr, key
+	return &h, addr, key, trustedSubnet
 }
 
-func InitializeRouter(h *handler.Handler, key string, privateKeyPath string) *mux.Router {
+func InitializeRouter(h *handler.Handler, key string, privateKeyPath string, trustedSubnet string) *mux.Router {
 	r := mux.NewRouter()
 
 	var privateKey *rsa.PrivateKey
@@ -260,7 +270,7 @@ func InitializeRouter(h *handler.Handler, key string, privateKeyPath string) *mu
 		wrapWithHash = MiddlewareWithHash(key)
 	} else {
 		wrapWithHash = func(next http.Handler) http.Handler {
-			return next 
+			return next
 		}
 	}
 
@@ -273,11 +283,15 @@ func InitializeRouter(h *handler.Handler, key string, privateKeyPath string) *mu
 		}
 	}
 
+	wrapWithTrustedSubnet := middleware.TrustedSubnetMiddleware(trustedSubnet)
+
 	wrapHandler := func(handler http.Handler) http.Handler {
 		return middleware.GzipMiddleware(
 			logger.RequestLogger(
-				wrapWithHash(
-					wrapWithDecryption(handler),
+				wrapWithTrustedSubnet(
+					wrapWithHash(
+						wrapWithDecryption(handler),
+					),
 				),
 			),
 		)
