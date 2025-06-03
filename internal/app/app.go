@@ -3,9 +3,9 @@ package app
 import (
 	"database/sql"
 	"encoding/hex"
-	"flag"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -64,43 +64,62 @@ func MiddlewareWithHash(key string) func(http.Handler) http.Handler {
 	}
 }
 
-func InitializeApp() (*handler.Handler, string, string) {
-	// Определение флагов
-	addrFlag := flag.String("a", "localhost:8080", "HTTP server address")
-	storeIntervalFlag := flag.Int("i", 300, "Store interval in seconds (0 for synchronous saving)")
-	fileStoragePathFlag := flag.String("f", "/tmp/metrics-db.json", "File storage path")
-	restoreFlag := flag.Bool("r", true, "Restore metrics from file at startup")
-	databaseDSNFlag := flag.String("d", "", "Database connection string")
-	keyFlag := flag.String("k", "", "Secret key for hashing")
+func MiddlewareWithTrustedSubnet(trustedSubnet string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Получаем IP-адрес из заголовка X-Real-IP
+			realIP := r.Header.Get("X-Real-IP")
+			if realIP == "" {
+				http.Error(w, "Missing X-Real-IP header", http.StatusForbidden)
+				return
+			}
 
-	// Парсинг флагов
-	flag.Parse()
+			// Парсим доверенную подсеть
+			_, trustedNet, err := net.ParseCIDR(trustedSubnet)
+			if err != nil {
+				http.Error(w, "Invalid trusted subnet configuration", http.StatusInternalServerError)
+				return
+			}
 
+			// Парсим IP-адрес из заголовка
+			clientIP := net.ParseIP(realIP)
+			if clientIP == nil {
+				http.Error(w, "Invalid IP address in X-Real-IP header", http.StatusBadRequest)
+				return
+			}
+
+			// Проверяем, входит ли IP в доверенную подсеть
+			if !trustedNet.Contains(clientIP) {
+				http.Error(w, "IP address not in trusted subnet", http.StatusForbidden)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func InitializeAppWithFlags(addr string, storeInterval int, fileStoragePath string, restore bool, databaseDSN string, key string, trustedSubnet string) (*handler.Handler, string, string, string) {
 	// Чтение переменных окружения с приоритетом
-	addr := *addrFlag
 	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
 		addr = envAddr
 	}
 
-	var storeInterval time.Duration
+	var storeIntervalDuration time.Duration
 	if envStoreInterval := os.Getenv("STORE_INTERVAL"); envStoreInterval != "" {
 		intervalSec, err := strconv.Atoi(envStoreInterval)
 		if err != nil {
 			log.Fatalf("Invalid STORE_INTERVAL: %v", err)
 		}
-		storeInterval = time.Duration(intervalSec) * time.Second
-	} else if storeIntervalFlag != nil {
-		storeInterval = time.Duration(*storeIntervalFlag) * time.Second
+		storeIntervalDuration = time.Duration(intervalSec) * time.Second
 	} else {
-		storeInterval = 300 * time.Second
+		storeIntervalDuration = time.Duration(storeInterval) * time.Second
 	}
 
-	fileStoragePath := *fileStoragePathFlag
 	if envFileStoragePath := os.Getenv("FILE_STORAGE_PATH"); envFileStoragePath != "" {
 		fileStoragePath = envFileStoragePath
 	}
 
-	restore := *restoreFlag
 	if envRestore := os.Getenv("RESTORE"); envRestore != "" {
 		var err error
 		restore, err = strconv.ParseBool(envRestore)
@@ -110,14 +129,17 @@ func InitializeApp() (*handler.Handler, string, string) {
 	}
 
 	// Обработка databaseDSN
-	databaseDSN := *databaseDSNFlag
 	if envDatabaseDSN := os.Getenv("DATABASE_DSN"); envDatabaseDSN != "" {
 		databaseDSN = envDatabaseDSN
 	}
 
-	key := *keyFlag
 	if envKey := os.Getenv("KEY"); envKey != "" {
 		key = envKey
+	}
+
+	// Обработка trusted_subnet
+	if envTrustedSubnet := os.Getenv("TRUSTED_SUBNET"); envTrustedSubnet != "" {
+		trustedSubnet = envTrustedSubnet
 	}
 
 	// Инициализация логгера
@@ -154,8 +176,8 @@ func InitializeApp() (*handler.Handler, string, string) {
 				log.Printf("Error loading metrics from file: %v", err)
 			}
 		}
-		if storeInterval > 0 {
-			go storage.RunPeriodicSave(memStorage, fileStoragePath, storeInterval)
+		if storeIntervalDuration > 0 {
+			go storage.RunPeriodicSave(memStorage, fileStoragePath, storeIntervalDuration)
 		}
 		log.Println("Using file or in-memory storage")
 	}
@@ -166,10 +188,10 @@ func InitializeApp() (*handler.Handler, string, string) {
 		DB:      dbConnection,
 	}
 
-	return &h, addr, key
+	return &h, addr, key, trustedSubnet
 }
 
-func InitializeRouter(h *handler.Handler, key string) *mux.Router {
+func InitializeRouter(h *handler.Handler, key string, trustedSubnet string) *mux.Router {
 	r := mux.NewRouter()
 
 	// Проверяем, передан ли key, и определяем middleware
@@ -182,11 +204,23 @@ func InitializeRouter(h *handler.Handler, key string) *mux.Router {
 		}
 	}
 
+	// Добавляем middleware для проверки доверенной подсети
+	var wrapWithTrustedSubnet func(http.Handler) http.Handler
+	if trustedSubnet != "" {
+		wrapWithTrustedSubnet = MiddlewareWithTrustedSubnet(trustedSubnet)
+	} else {
+		wrapWithTrustedSubnet = func(next http.Handler) http.Handler {
+			return next // Если trusted_subnet не задан, просто возвращаем обработчик
+		}
+	}
+
 	// Функция для обертки обработчиков
 	wrapHandler := func(handler http.Handler) http.Handler {
 		return middleware.GzipMiddleware(
 			logger.RequestLogger(
-				wrapWithHash(handler),
+				wrapWithTrustedSubnet(
+					wrapWithHash(handler),
+				),
 			),
 		)
 	}

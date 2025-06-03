@@ -27,13 +27,24 @@ func main() {
 	fmt.Printf("Build date: %s\n", buildDate)
 	fmt.Printf("Build commit: %s\n", buildCommit)
 
+	// Определение всех флагов в main
+	addrFlag := flag.String("a", "localhost:8080", "HTTP server address")
+	storeIntervalFlag := flag.Int("i", 300, "Store interval in seconds (0 for synchronous saving)")
+	fileStoragePathFlag := flag.String("f", "/tmp/metrics-db.json", "File storage path")
+	restoreFlag := flag.Bool("r", true, "Restore metrics from file at startup")
+	databaseDSNFlag := flag.String("d", "", "Database connection string")
+	keyFlag := flag.String("k", "", "Secret key for hashing")
+	trustedSubnetFlag := flag.String("t", "", "Trusted subnet in CIDR notation")
 	memProfile := flag.Bool("memprofile", false, "enable memory profiling")
 	flag.Parse()
 
 	// Инициализация логгера и обеспечение его синхронизации
 	defer app.SyncLogger()
 
-	h, addr, key := app.InitializeApp()
+	h, addr, key, trustedSubnet := app.InitializeAppWithFlags(
+		*addrFlag, *storeIntervalFlag, *fileStoragePathFlag,
+		*restoreFlag, *databaseDSNFlag, *keyFlag, *trustedSubnetFlag,
+	)
 
 	// Получаем конкретную реализацию хранилища для проверки его типа при завершении
 	storageImpl := h.Storage
@@ -66,7 +77,7 @@ func main() {
 		}()
 	}
 
-	r := app.InitializeRouter(h, key)
+	r := app.InitializeRouter(h, key, trustedSubnet)
 
 	// Канал для перехвата сигналов завершения
 	stop := make(chan os.Signal, 1)

@@ -1,0 +1,9 @@
+{
+  "address": "localhost:8080",
+  "store_interval": 300,
+  "file_storage_path": "/tmp/metrics-db.json",
+  "restore": true,
+  "database_dsn": "",
+  "key": "",
+  "trusted_subnet": ""
+} 

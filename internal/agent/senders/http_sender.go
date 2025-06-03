@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 
 	"github.com/25x8/metric-gathering/internal/utils"
@@ -29,6 +30,17 @@ func NewHTTPSender(serverURL string) *HTTPSender {
 	return &HTTPSender{
 		ServerURL: serverURL,
 	}
+}
+
+func getLocalIP() (string, error) {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String(), nil
 }
 
 func (s *HTTPSender) SendBatch(metrics map[string]interface{}) error {
@@ -73,6 +85,11 @@ func (s *HTTPSender) SendBatch(metrics map[string]interface{}) error {
 	}
 	gzipWriter.Close()
 
+	localIP, err := getLocalIP()
+	if err != nil {
+		return fmt.Errorf("failed to get local IP: %w", err)
+	}
+
 	// Send request
 	url := fmt.Sprintf("%s/updates/", s.ServerURL)
 	req, err := http.NewRequest(http.MethodPost, url, &compressedBody)
@@ -82,6 +99,7 @@ func (s *HTTPSender) SendBatch(metrics map[string]interface{}) error {
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Real-IP", localIP)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -97,6 +115,11 @@ func (s *HTTPSender) SendBatch(metrics map[string]interface{}) error {
 }
 
 func (s *HTTPSender) Send(metrics map[string]interface{}, key string) error {
+	localIP, err := getLocalIP()
+	if err != nil {
+		return fmt.Errorf("failed to get local IP: %w", err)
+	}
+
 	for keyName, value := range metrics {
 		var metricType string
 		switch value.(type) {
@@ -132,6 +155,7 @@ func (s *HTTPSender) Send(metrics map[string]interface{}, key string) error {
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
 		req.Header.Set("Content-Type", "text/plain")
+		req.Header.Set("X-Real-IP", localIP)
 
 		// Добавляем хеш в заголовок, если он рассчитан
 		if hash != "" {
