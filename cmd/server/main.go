@@ -22,6 +22,7 @@ func init() {
 	flag.Bool("r", true, "Restore metrics from file at startup")
 	flag.String("d", "", "Database connection string")
 	flag.String("k", "", "Secret key for hashing")
+	flag.String("t", "", "Trusted subnet in CIDR format")
 }
 
 func main() {
@@ -48,7 +49,7 @@ func main() {
 
 	defer app.SyncLogger()
 
-	h, addr, key := app.InitializeApp()
+	h, addr, key, trustedSubnet := app.InitializeApp()
 
 	privateKeyPath := *cryptoKeyPath
 
@@ -80,7 +81,7 @@ func main() {
 		}()
 	}
 
-	r := app.InitializeRouter(h, key, privateKeyPath)
+	r := app.InitializeRouter(h, key, privateKeyPath, trustedSubnet)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)

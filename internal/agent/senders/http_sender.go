@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/25x8/metric-gathering/internal/utils"
@@ -45,7 +46,7 @@ func (s *HTTPSender) SendBatch(metrics map[string]interface{}, publicKey *rsa.Pu
 		switch v := value.(type) {
 		case int64:
 			metric.MType = "counter"
-			metric.Delta = &v 
+			metric.Delta = &v
 		case float64:
 			metric.MType = "gauge"
 			metric.Value = &v
@@ -96,6 +97,12 @@ func (s *HTTPSender) SendBatch(metrics map[string]interface{}, publicKey *rsa.Pu
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(requestBody))
 	if err != nil {
 		return err
+	}
+
+	if localIP, err := utils.GetLocalIP(); err == nil {
+		req.Header.Set("X-Real-IP", localIP)
+	} else {
+		log.Printf("Warning: failed to get local IP: %v", err)
 	}
 
 	if isEncrypted {
@@ -166,6 +173,13 @@ func (s *HTTPSender) Send(metrics map[string]interface{}, key string, publicKey 
 		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(requestBody))
 		if err != nil {
 			return err
+		}
+
+		// Добавляем заголовок X-Real-IP
+		if localIP, err := utils.GetLocalIP(); err == nil {
+			req.Header.Set("X-Real-IP", localIP)
+		} else {
+			log.Printf("Warning: failed to get local IP: %v", err)
 		}
 
 		if isEncrypted {
